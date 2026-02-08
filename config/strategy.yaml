@@ -1,0 +1,179 @@
+# Strategy Configuration - Based on PRD v2.0 and Tech Design v1.1
+# Version: 1.0
+
+strategy:
+  name: "momentum_risk_parity_v2"
+  rebalance_frequency: "daily"
+  min_rebalance_threshold: 0.02  # 2% weight change triggers rebalance
+
+# Core Assets (Phase 1)
+core_assets:
+  GLD:
+    max_weight: 0.50
+    momentum_lookback: 90
+    vol_target: 0.12
+    asset_stop_loss: 0.12
+  SPY:
+    max_weight: 0.40
+    momentum_lookback: 60
+    vol_target: 0.15
+    asset_stop_loss: 0.12
+  QQQ:
+    max_weight: 0.30
+    momentum_lookback: 60
+    vol_target: 0.18
+    asset_stop_loss: 0.12
+  BTC-USD:
+    max_weight: 0.15
+    momentum_lookback: 30
+    vol_target: 0.25
+    asset_stop_loss: 0.18
+
+# Extended Assets (Phase 2)
+extended_assets:
+  - { symbol: SLV, max_weight: 0.15 }
+  - { symbol: XLK, max_weight: 0.20 }
+  - { symbol: XLF, max_weight: 0.15 }
+  - { symbol: XLE, max_weight: 0.15 }
+  - { symbol: XLV, max_weight: 0.15 }
+  - { symbol: TLT, max_weight: 0.30 }
+  - { symbol: TIP, max_weight: 0.15 }
+  - { symbol: EFA, max_weight: 0.20 }
+  - { symbol: EEM, max_weight: 0.15 }
+  - { symbol: DBC, max_weight: 0.15 }
+  - { symbol: VNQ, max_weight: 0.15 }
+
+# 4-Level Hierarchical Risk Control (from PRD FR-1.6)
+risk:
+  levels:
+    level_1:
+      drawdown_trigger: 0.05
+      actions:
+        - "alert"
+        - "increase_confidence_threshold"
+        - "block_btc_new"
+    level_2:
+      drawdown_trigger: 0.08
+      actions:
+        - "reduce_positions_25pct"
+        - "close_btc"
+        - "sell_only"
+    level_3:
+      drawdown_trigger: 0.12
+      actions:
+        - "reduce_positions_50pct"
+        - "safe_haven_only"
+        - "manual_review"
+    level_4:
+      drawdown_trigger: 0.15
+      actions:
+        - "emergency_liquidation"
+        - "require_manual_confirm"
+  
+  # Single asset stop loss
+  asset_stops:
+    drawdown_reduce: 0.12  # Reduce to 50%
+    drawdown_exit: 0.18    # Full exit
+  
+  # Correlation monitoring thresholds
+  correlation:
+    pair_warning: 0.7       # Single asset pair
+    portfolio_warning: 0.5   # Portfolio average
+    extreme_threshold: 0.8   # All assets same direction
+  
+  # Re-entry logic after Level 4
+  reentry:
+    cooldown_days: 5
+    vol_threshold_multiplier: 1.0
+    initial_position_pct: 0.25
+    ramp_up_weekly_pct: 0.25
+    max_leverage_recovery: 1.0
+
+# Portfolio constraints (from PRD FR-1.4)
+portfolio:
+  target_volatility: 0.15
+  max_leverage: 1.5
+  min_trade_amount: 100
+  min_rebalance_threshold: 0.02
+  cash_buffer: 0.05
+  max_daily_trades: 5
+  max_daily_turnover: 0.30
+
+# Cost model (from Tech Design Section 3.5)
+costs:
+  etf:
+    commission: 0.001     # 0.1%
+    slippage: 0.0005      # 0.05%
+  btc:
+    commission: 0.001     # 0.1%
+    slippage: 0.0015      # 0.15%
+
+# Signal thresholds
+signals:
+  momentum:
+    high_threshold: 0.10    # 10% for STRONG_BUY
+    low_threshold: 0.03     # 3% for BUY
+    neg_threshold: -0.03    # -3% for SELL
+    neg_high_threshold: -0.10  # -10% for STRONG_SELL
+  
+  # VIX-based market regime
+  vix:
+    normal: 20
+    elevated: 30
+    extreme: 40
+
+# Factor configuration
+factors:
+  momentum:
+    periods: [60, 120]
+  volatility:
+    periods: [20, 60]
+    annualize: true
+  sma:
+    periods: [20, 50, 200]
+  rsi:
+    period: 14
+  atr:
+    period: 14
+
+# Data sources
+data:
+  primary: "polygon"
+  fallback: "yfinance"
+  btc_primary: "binance"
+  cache_backend: "sqlite"
+  cache_retention_days: 30
+
+# Alerts configuration
+alerts:
+  channels:
+    - "slack"
+    - "email"
+  levels:
+    info: ["daily_summary", "normal_signals"]
+    warning: ["risk_level_1", "data_quality"]
+    critical: ["risk_level_2_plus", "system_errors"]
+    emergency: ["risk_level_4", "system_crash"]
+
+# Backtest configuration
+backtest:
+  default_period_years: 5
+  stress_test_scenarios:
+    - name: "2008_crisis"
+      start: "2008-01-01"
+      end: "2009-12-31"
+      max_dd: 0.25
+    - name: "covid_crash"
+      start: "2020-02-01"
+      end: "2020-06-30"
+      max_dd: 0.18
+    - name: "2022_rates"
+      start: "2022-01-01"
+      end: "2022-12-31"
+      max_dd: 0.20
+
+# Compliance
+compliance:
+  pdt_tracking: true
+  wash_sale_tracking: true
+  tax_lot_method: "FIFO"
