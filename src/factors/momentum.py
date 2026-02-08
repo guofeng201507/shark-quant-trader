@@ -66,7 +66,7 @@ class CrossSectionalMomentum:
         return momentum_returns.rank(pct=True)
 
     def get_signals(self, ranks: pd.Series, 
-                    sma_200_filter: Dict[str, bool]) -> Dict[str, str]:
+                    sma_200_filter: Dict[str, bool]) -> Dict:
         """
         Generate signals based on ranks and filters.
         
@@ -75,9 +75,12 @@ class CrossSectionalMomentum:
             sma_200_filter: Dict mapping symbol -> is_above_sma_200
             
         Returns:
-            Dict mapping symbol -> signal ("LONG", "AVOID", "HOLD")
+            Dict with keys:
+                - 'signals': Dict mapping symbol -> signal ("LONG", "AVOID", "HOLD")
+                - 'defense_mode': bool indicating if defense mode is triggered
         """
         signals = {}
+        defense_mode = False
         
         for symbol, rank in ranks.items():
             is_above_sma = sma_200_filter.get(symbol, False)
@@ -92,13 +95,17 @@ class CrossSectionalMomentum:
             else:
                 signals[symbol] = "HOLD"
                 
-        # Check defense mode: If >50% of Top group below SMA_200
+        # Check defense mode: If >50% of Top group below SMA_200 (PRD FR-2.1)
         top_group = [s for s, r in ranks.items() if r >= 0.7]
         if top_group:
             top_above_sma = [s for s in top_group if sma_200_filter.get(s, False)]
             if len(top_above_sma) / len(top_group) < 0.5:
+                defense_mode = True
                 logger.warning("Defense Mode Triggered: >50% of Top Momentum assets below SMA_200")
-                # In defense mode, all signals except safe havens should be AVOID or reduced
-                # (Logic handled in strategy/rotation module)
+                # Override all signals to AVOID except safe havens (GLD, TLT)
+                safe_havens = {"GLD", "TLT"}
+                for symbol in signals:
+                    if symbol not in safe_havens:
+                        signals[symbol] = "AVOID"
                 
-        return signals
+        return {"signals": signals, "defense_mode": defense_mode}

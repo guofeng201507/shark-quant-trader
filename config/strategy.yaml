@@ -43,6 +43,38 @@ extended_assets:
   - { symbol: DBC, max_weight: 0.15 }
   - { symbol: VNQ, max_weight: 0.15 }
 
+# Phase 2: Cross-Sectional Momentum (FR-2.1)
+momentum_cross_sectional:
+  lookback_months: 12
+  skip_months: 1
+  top_pct: 0.30              # Top 30% = LONG
+  bottom_pct: 0.30            # Bottom 30% = AVOID
+  sma_trend_filter: 200       # SMA_200 trend filter
+  defense_mode_threshold: 0.50  # >50% top assets below SMA_200 triggers defense
+  safe_havens: ["GLD", "TLT"]   # Defense mode fallback assets
+
+# Phase 2: Crypto Carry Strategy (FR-2.2)
+carry:
+  data_sources:
+    - binance   # /fapi/v1/fundingRate
+    # - bybit   # /v5/market/funding/history (future expansion)
+  thresholds:
+    entry_rate_8h: 0.0001      # 0.01% per 8h (~10% annualized)
+    exit_rate_8h: -0.0001      # Close when rate inverts
+    max_position: 0.10         # Max 10% of portfolio
+    max_exchange_exposure: 0.08  # Max 8% per exchange (counterparty risk)
+    basis_deviation_alert: 0.02  # 2% basis deviation triggers alert
+  risk_control:
+    vol_pause_threshold: 3.0   # Pause if funding rate > 3x historical std
+
+# Phase 2: Asset Rotation (FR-2.3)
+rotation:
+  rebalance_frequency: "monthly"
+  max_monthly_turnover: 0.40   # < 40% per month
+  max_monthly_cost: 0.002      # < 0.2% of portfolio per month
+  vol_target: 0.15
+  max_leverage: 1.5
+
 # 4-Level Hierarchical Risk Control (from PRD FR-1.6)
 risk:
   levels:
