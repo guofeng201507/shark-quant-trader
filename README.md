@@ -1,14 +1,14 @@
 # Shark Quant Trader
 
-**Intelligent Trading Decision System - Phase 1 MVP**
+**Intelligent Trading Decision System - Phase 2 Enhanced Strategies**
 
-A production-ready quantitative trading system with hierarchical risk management, multi-asset support, and VIX-based market regime filtering.
+A production-ready quantitative trading system with hierarchical risk management, cross-sectional momentum, crypto carry arbitrage, and tactical asset rotation.
 
 ---
 
 ## 🎯 Features
 
-### Phase 1 (Current)
+### Phase 1 (Complete)
 - ✅ **Multi-Source Data Acquisition**: Polygon.io → Binance (public API) → yfinance fallback chain
 - ✅ **Technical Factor Calculation**: Momentum, Volatility, SMA, RSI, ATR
 - ✅ **VIX-Based Signal Generation**: Market regime filtering (Normal/Elevated/High Vol/Extreme)
@@ -22,9 +22,19 @@ A production-ready quantitative trading system with hierarchical risk management
 - ✅ **Backtesting Engine**: Historical performance metrics (Sharpe, Calmar, MaxDD)
 - ✅ **Stress Testing**: 5 historical crisis scenarios + Monte Carlo simulation
 
-### Asset Universe (Phase 1)
+### Phase 2 (Current - Enhanced Strategies)
+- ✅ **Expanded Asset Universe**: 15 assets (GLD, SPY, QQQ, BTC + 11 ETFs)
+- ✅ **Cross-Sectional Momentum (FR-2.1)**: 12-1 month ranking with Top 30% selection
+- ✅ **Crypto Carry Strategy (FR-2.2)**: Binance funding rate arbitrage with risk monitoring
+- ✅ **Tactical Asset Rotation (FR-2.3)**: Momentum + Risk Parity optimization using riskfolio-lib
+- ✅ **Enhanced Data Provider**: Funding rate API integration for carry strategies
+- ✅ **Trend Filter**: SMA_200 filter with Defense Mode for adverse market conditions
+- ✅ **Volatility Targeting**: Portfolio-level volatility scaling with 1.5x leverage cap
+
+### Asset Universe (Phase 2 - Expanded)
 - **Core 4 Assets**: GLD, SPY, QQQ, BTC-USD
-- **Expandable to 15 in Phase 2**: SLV, XLK, XLF, XLE, XLV, TLT, TIP, EFA, EEM, DBC, VNQ
+- **Extended 11 Assets**: SLV, XLK, XLF, XLE, XLV, TLT, TIP, EFA, EEM, DBC, VNQ
+- **Total**: 15 assets enabling statistically meaningful cross-sectional ranking
 
 ---
 
@@ -34,11 +44,17 @@ A production-ready quantitative trading system with hierarchical risk management
 shark-quant-trader/
 ├── src/
 │   ├── data/          # Multi-source data provider with caching
-│   │   └── provider.py    # Polygon → Binance → yfinance fallback
+│   │   └── provider.py    # Polygon → Binance (+ Funding Rates) → yfinance fallback
 │   ├── factors/       # Technical indicator calculation
+│   │   ├── calculator.py  # Technical factors (Phase 1)
+│   │   ├── momentum.py    # Cross-sectional momentum (Phase 2)
+│   │   ├── carry.py       # Crypto carry strategy (Phase 2)
+│   │   └── rotation.py    # Asset rotation model (Phase 2)
 │   ├── signals/       # Signal generation with regime filtering
 │   ├── risk/          # 4-level risk manager + correlation monitor
 │   ├── portfolio/     # Position sizing and optimization
+│   │   ├── manager.py     # Position management (Phase 1)
+│   │   └── optimizer.py   # riskfolio-lib integration (Phase 2)
 │   ├── execution/     # Order management and compliance
 │   ├── state/         # State persistence (SQLite)
 │   ├── alerts/        # Multi-channel notifications
@@ -51,6 +67,9 @@ shark-quant-trader/
 │   └── strategy.yaml  # Strategy configuration (risk levels, assets, etc.)
 ├── tests/             # Unit and integration tests
 ├── data/              # Data cache and state database
+├── demo_phase1.py     # Phase 1 demo script
+├── demo_phase2.py     # Phase 2 demo script (NEW)
+├── verify_carry.py    # Carry strategy verification (NEW)
 ├── .env.example       # Environment configuration template
 ├── .gitignore         # Git ignore rules
 ├── pyproject.toml     # Poetry dependencies & project config
@@ -230,21 +249,25 @@ Alerts sent for:
 
 ## 🗺️ Roadmap
 
-### Phase 2 (Q2 2026)
-- [ ] Expand to 15 assets
-- [ ] Cross-sectional momentum ranking
-- [ ] Advanced portfolio optimization (riskfolio-lib)
-- [ ] Factor decay monitoring
+### Phase 2 (Complete - Q1 2026)
+- ✅ Expand to 15 assets
+- ✅ Cross-sectional momentum ranking (FR-2.1)
+- ✅ Crypto carry arbitrage strategy (FR-2.2)
+- ✅ Tactical asset rotation with riskfolio-lib (FR-2.3)
+- ✅ Funding rate API integration
+- ✅ SMA_200 trend filter with Defense Mode
 
-### Phase 3 (Q3 2026)
-- [ ] Machine learning signal augmentation
-- [ ] Regime detection (HMM)
-- [ ] Sentiment integration
+### Phase 3 (Q2-Q3 2026)
+- [ ] Machine learning signal augmentation (XGBoost/LightGBM)
+- [ ] Purged walk-forward validation (CPCV)
+- [ ] Feature engineering with macro factors
+- [ ] Model lifecycle management
+- [ ] Concept drift monitoring
 
 ### Phase 4 (Q4 2026)
-- [ ] Options strategies
-- [ ] Intraday trading
-- [ ] Multi-strategy ensemble
+- [ ] NLP sentiment analysis (FinBERT)
+- [ ] CFTC COT Report integration
+- [ ] Sentiment factor integration into ML models
 
 ---
 
@@ -285,17 +308,27 @@ Proprietary - All rights reserved
 
 ---
 
-## 🏆 System Metrics (Phase 1)
+## 🏆 System Metrics (Phase 2)
 
-- **Total Lines of Code**: ~4,500+
-- **Core Modules**: 14
+- **Total Lines of Code**: ~5,500+
+- **Core Modules**: 17 (includes Phase 2 modules)
 - **Test Coverage**: Risk & Factor modules
-- **Dependencies**: 14+ (pandas, numpy, yfinance, pandas-ta, backtrader, polygon-api-client, requests, etc.)
+- **Dependencies**: 15+ (pandas, numpy, yfinance, pandas-ta, backtrader, polygon-api-client, requests, riskfolio-lib, etc.)
 - **Database**: SQLite for state persistence and data caching
 - **Logging**: Structured logging with loguru
-- **Last Review**: February 8, 2026 - Live demo validated all components
+- **Last Review**: February 9, 2026 - Phase 2 demo validated enhanced strategies
 
-### Live Demo Results (Feb 8, 2026)
+### Phase 2 Demo Results (Feb 9, 2026)
+
+| Component | Status | Details |
+|-----------|--------|--------|
+| Data Provider | PASS | Polygon + Binance (Prices & Funding Rates) + yfinance fallback |
+| Cross-Sectional Momentum | PASS | Top 30%: SLV (+141.77%), GLD (+54.94%), EEM (+35.21%), EFA (+26.80%), XLK (+25.14%) |
+| Crypto Carry Strategy | PASS | BTC Funding: -0.0049% (Annualized: -5.33%), Signal: HOLD |
+| Asset Rotation | PASS | 5 assets selected, Risk Parity weights: EFA (25.91%), EEM (23.19%), GLD (17.80%), XLK (15.56%), SLV (8.89%) |
+| riskfolio-lib Integration | PASS | Inverse volatility fallback successful |
+
+### Phase 1 Demo Results (Feb 8, 2026)
 
 | Component | Status | Details |
 |-----------|--------|--------|

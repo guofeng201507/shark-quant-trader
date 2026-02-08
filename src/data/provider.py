@@ -180,7 +180,7 @@ class DataProvider:
             
             if aggs:
                 data = [{
-                    'date': pd.Timestamp(a.timestamp, unit='ms'),
+                    'date': pd.Timestamp(a.timestamp, unit='ms', tz='UTC').tz_localize(None),
                     'open': a.open,
                     'high': a.high,
                     'low': a.low,
@@ -234,7 +234,7 @@ class DataProvider:
                     'taker_buy_quote', 'ignore'
                 ])
                 
-                df['date'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df['date'] = pd.to_datetime(df['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_localize(None)
                 df.set_index('date', inplace=True)
                 
                 # Convert to float
@@ -259,6 +259,10 @@ class DataProvider:
             df = ticker.history(start=start_date, end=end_date, auto_adjust=True)
             
             if not df.empty:
+                # Standardize index to naive UTC
+                if df.index.tz is not None:
+                    df.index = df.index.tz_convert('UTC').tz_localize(None)
+                
                 # Standardize column names
                 df.columns = df.columns.str.lower()
                 df = df[['open', 'high', 'low', 'close', 'volume']]
@@ -382,3 +386,48 @@ class DataProvider:
         status["cache"] = "active" if self.cache_path.exists() else "unavailable"
         
         return status
+
+    def fetch_funding_rate(self, symbol: str, limit: int = 100) -> Optional[pd.DataFrame]:
+        """
+        Fetch funding rate history from Binance Futures.
+        
+        Args:
+            symbol: Binance symbol (e.g. BTCUSDT)
+            limit: Number of records (max 1000)
+            
+        Returns:
+            DataFrame with funding rate history
+        """
+        if not REQUESTS_AVAILABLE:
+            return None
+            
+        try:
+            import requests
+            
+            # Convert symbol to Binance format
+            binance_symbol = "BTCUSDT" if symbol == "BTC-USD" else symbol.replace("-", "")
+            
+            url = f"{self.binance_base_url}/fapi/v1/fundingRate"
+            params = {
+                "symbol": binance_symbol,
+                "limit": limit
+            }
+            
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data:
+                df = pd.DataFrame(data)
+                df['fundingTime'] = pd.to_datetime(df['fundingTime'], unit='ms')
+                df.set_index('fundingTime', inplace=True)
+                
+                # Convert fundingRate to float
+                df['fundingRate'] = df['fundingRate'].astype(float)
+                
+                return df[['symbol', 'fundingRate']]
+                
+        except Exception as e:
+            logger.error(f"Binance funding rate fetch failed for {symbol}: {e}")
+            
+        return None
