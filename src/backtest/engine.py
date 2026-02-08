@@ -80,7 +80,7 @@ class Backtester:
         # Run simulation day by day
         for date in dates:
             # Get current prices
-            prices = {s: price_data[s].loc[date, 'Close'] 
+            prices = {s: price_data[s].loc[date, 'close'] 
                      for s in symbols if date in price_data[s].index}
             
             # Get VIX value if available

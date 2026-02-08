@@ -25,11 +25,11 @@ except ImportError:
     logger.warning("polygon-api-client not installed")
 
 try:
-    from binance.client import Client as BinanceClient
-    BINANCE_AVAILABLE = True
+    import requests
+    REQUESTS_AVAILABLE = True
 except ImportError:
-    BINANCE_AVAILABLE = False
-    logger.warning("python-binance not installed")
+    REQUESTS_AVAILABLE = False
+    logger.warning("requests not installed")
 
 
 class DataProvider:
@@ -66,16 +66,9 @@ class DataProvider:
                 except Exception as e:
                     logger.warning(f"Failed to initialize Polygon client: {e}")
         
-        # Binance client (for BTC)
-        self.binance_client = None
-        if BINANCE_AVAILABLE:
-            api_key = os.getenv("BINANCE_API_KEY", "")
-            api_secret = os.getenv("BINANCE_API_SECRET", "")
-            try:
-                self.binance_client = BinanceClient(api_key, api_secret)
-                logger.info("Binance client initialized")
-            except Exception as e:
-                logger.warning(f"Failed to initialize Binance client: {e}")
+        # Binance public API (no key required)
+        self.binance_base_url = os.getenv("BINANCE_FAPI_BASE", "https://fapi.binance.com")
+        logger.info(f"Binance public API configured: {self.binance_base_url}")
     
     def _init_cache(self):
         """Initialize SQLite cache"""
@@ -144,8 +137,8 @@ class DataProvider:
                 df = self._fetch_polygon(symbol, start_date, end_date)
                 source = "polygon"
             
-            # Try Binance for BTC
-            if df is None and symbol == "BTC-USD" and self.binance_client:
+            # Try Binance for BTC (public API, no key required)
+            if df is None and symbol == "BTC-USD" and REQUESTS_AVAILABLE:
                 df = self._fetch_binance(symbol, start_date, end_date)
                 source = "binance"
             
@@ -206,20 +199,33 @@ class DataProvider:
     
     def _fetch_binance(self, symbol: str, start_date: str, 
                       end_date: str) -> Optional[pd.DataFrame]:
-        """Fetch from Binance (for BTC)"""
-        if not self.binance_client:
+        """Fetch from Binance public Futures API (no auth required)"""
+        if not REQUESTS_AVAILABLE:
             return None
         
         try:
+            import requests
+            
             # Convert symbol to Binance format
             binance_symbol = "BTCUSDT" if symbol == "BTC-USD" else symbol.replace("-", "")
             
-            klines = self.binance_client.get_historical_klines(
-                binance_symbol,
-                BinanceClient.KLINE_INTERVAL_1DAY,
-                start_date,
-                end_date
-            )
+            # Convert dates to timestamps
+            start_ts = int(pd.Timestamp(start_date).timestamp() * 1000)
+            end_ts = int(pd.Timestamp(end_date).timestamp() * 1000)
+            
+            # Binance Futures public klines endpoint
+            url = f"{self.binance_base_url}/fapi/v1/klines"
+            params = {
+                "symbol": binance_symbol,
+                "interval": "1d",
+                "startTime": start_ts,
+                "endTime": end_ts,
+                "limit": 1500
+            }
+            
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            klines = response.json()
             
             if klines:
                 df = pd.DataFrame(klines, columns=[
@@ -371,7 +377,7 @@ class DataProvider:
         status = {}
         
         status["polygon"] = "connected" if self.polygon_client else "unavailable"
-        status["binance"] = "connected" if self.binance_client else "unavailable"
+        status["binance"] = "available (public API)" if REQUESTS_AVAILABLE else "unavailable"
         status["yfinance"] = "available" if YFINANCE_AVAILABLE else "unavailable"
         status["cache"] = "active" if self.cache_path.exists() else "unavailable"
         

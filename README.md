@@ -9,7 +9,7 @@ A production-ready quantitative trading system with hierarchical risk management
 ## 🎯 Features
 
 ### Phase 1 (Current)
-- ✅ **Multi-Source Data Acquisition**: Polygon.io → Binance → yfinance fallback chain
+- ✅ **Multi-Source Data Acquisition**: Polygon.io → Binance (public API) → yfinance fallback chain
 - ✅ **Technical Factor Calculation**: Momentum, Volatility, SMA, RSI, ATR
 - ✅ **VIX-Based Signal Generation**: Market regime filtering (Normal/Elevated/High Vol/Extreme)
 - ✅ **4-Level Hierarchical Risk Control**: 5%, 8%, 12%, 15% drawdown triggers
@@ -86,7 +86,7 @@ vim .env
 
 Required API Keys:
 - `POLYGON_API_KEY`: Polygon.io API key (primary data source)
-- `BINANCE_API_KEY`: Binance API key (for BTC data)
+- Binance: Uses public Futures API - no key required
 - Alert channels (optional): SMTP, Slack, Telegram, Discord webhooks
 
 ### 3. Run Modes
@@ -287,13 +287,25 @@ Proprietary - All rights reserved
 
 ## 🏆 System Metrics (Phase 1)
 
-- **Total Lines of Code**: ~4,000+
+- **Total Lines of Code**: ~4,500+
 - **Core Modules**: 14
 - **Test Coverage**: Risk & Factor modules
-- **Dependencies**: 15+ (pandas, numpy, yfinance, pandas-ta, backtrader, polygon-api-client, etc.)
+- **Dependencies**: 14+ (pandas, numpy, yfinance, pandas-ta, backtrader, polygon-api-client, requests, etc.)
 - **Database**: SQLite for state persistence and data caching
 - **Logging**: Structured logging with loguru
-- **Last Review**: February 8, 2026 - PRD v2.0 & Tech Design v1.1 compliance verified
+- **Last Review**: February 8, 2026 - Live demo validated all components
+
+### Live Demo Results (Feb 8, 2026)
+
+| Component | Status | Details |
+|-----------|--------|--------|
+| Data Provider | PASS | Polygon (GLD, SPY, QQQ), Binance (BTC-USD) |
+| Factor Calculator | PASS | 13 factors per asset |
+| Signal Generator | PASS | VIX-based signal generation |
+| Risk Manager | PASS | 4-level hierarchical control |
+| Alert Manager | PASS | Telegram alerts working |
+| State Manager | PASS | SQLite persistence |
+| Backtest Engine | PASS | 1.01% return, 0.40 Sharpe |
 
 ---
 

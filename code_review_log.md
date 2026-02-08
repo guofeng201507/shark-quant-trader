@@ -230,6 +230,81 @@ Remove outdated pip + requirements.txt approach in favor of Poetry.
 
 ---
 
+## Review #4: Binance Public API Integration
+
+**Date:** February 8, 2026  
+**Reviewer:** AI Assistant  
+**Scope:** Data provider Binance integration
+
+### Review Objective
+Switch from authenticated Binance client to public Futures API.
+
+### Changes Made
+
+#### 1. Updated `src/data/provider.py`
+- Removed `python-binance` client dependency
+- Using public Binance Futures API (`/fapi/v1/klines`)
+- No authentication required for market data
+- Direct HTTP requests via `requests` library
+
+#### 2. Updated `.env` and `.env.example`
+- Removed `BINANCE_API_KEY` and `BINANCE_API_SECRET`
+- Added `BINANCE_FAPI_BASE=https://fapi.binance.com`
+
+#### 3. Updated `pyproject.toml`
+- Removed `python-binance>=1.0.17` dependency
+
+### Final Status
+✅ **COMPLETE** - Binance public API integrated
+
+---
+
+## Review #5: Phase 1 Live Demo and Bug Fixes
+
+**Date:** February 8, 2026  
+**Reviewer:** AI Assistant  
+**Scope:** End-to-end demo testing with live data
+
+### Review Objective
+Run live demo to validate all Phase 1 components work together.
+
+### Issues Found During Demo
+
+| Component | Issue | Fix |
+|-----------|-------|-----|
+| Signal Generator | `signal_type` attribute | Changed to `signal` |
+| Correlation Monitor | `calculate_correlation` method | Changed to `calculate_rolling_correlation` |
+| Backtest Engine | `'Close'` column name | Changed to `'close'` (lowercase) |
+
+### Changes Made
+
+#### 1. Fixed `demo_phase1.py`
+- Corrected signal attribute access
+- Fixed correlation method name
+
+#### 2. Fixed `src/backtest/engine.py`
+- Changed column reference from `'Close'` to `'close'`
+
+#### 3. Added `python-dotenv` dependency
+- For loading `.env` configuration
+
+### Demo Results
+
+```
+Data Provider:     PASS - Polygon (GLD, SPY, QQQ), Binance (BTC-USD)
+Factor Calculator: PASS - 13 factors per asset
+Signal Generator:  PASS - 4 signals generated  
+Risk Manager:      PASS - Risk level 0 (healthy)
+Alert Manager:     PASS - Telegram alert sent
+State Manager:     PASS - Portfolio state saved/loaded
+Backtest Engine:   PASS - 1.01% return, 0.40 Sharpe, -4.92% MaxDD
+```
+
+### Final Status
+✅ **COMPLETE** - All Phase 1 components validated with live data
+
+---
+
 *Template for future reviews:*
 
 ## Review #N: [Title]
