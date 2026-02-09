@@ -31,6 +31,8 @@ dependencies = [
     "polygon-api-client>=1.14.0",
     "requests>=2.31.0",
     "python-dotenv (>=1.2.1,<2.0.0)",
+    "optuna>=3.3.0",
+    "shap>=0.42.0",
 ]
 
 [build-system]

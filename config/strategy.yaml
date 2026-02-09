@@ -75,6 +75,50 @@ rotation:
   vol_target: 0.15
   max_leverage: 1.5
 
+# Phase 3: Machine Learning Enhancement (FR-3.x)
+ml:
+  # Feature Engineering (FR-3.1)
+  features:
+    return_periods: [1, 5, 10, 20, 60]
+    volatility_periods: [5, 20, 60]
+    ma_periods: [5, 10, 20, 50, 200]
+    min_ic_threshold: 0.02
+    max_features: 20
+  
+  # Model Training (FR-3.2)
+  training:
+    model_type: "xgboost"      # xgboost, lightgbm, ridge
+    target_type: "binary"      # binary, regression
+    cv_method: "purged_walkforward"  # purged_walkforward, cpcv
+    train_window: 756          # 3 years
+    test_window: 126           # 6 months
+    purge_gap: 21              # 21 trading days
+    embargo_pct: 0.02          # 5 trading days
+    
+  # Hyperparameter Optimization (FR-3.2)
+  hyperopt:
+    enabled: true
+    max_trials: 100
+    timeout_seconds: 3600
+    
+  # Signal Fusion (FR-3.4)
+  fusion:
+    ml_max_weight: 0.50        # ML weight cap (max 50%)
+    traditional_min_weight: 0.50
+    ic_threshold_degradation: 0.02  # Auto-degradation threshold
+    disagreement_threshold: 0.30
+    rolling_window: 20
+    
+  # Model Lifecycle (FR-3.5)
+  lifecycle:
+    retrain_monthly: true
+    retrain_trigger_ic: 0.02
+    retire_ic_threshold: 0.0
+    retire_ic_days: 30
+    drift_ks_alert: 0.10
+    drift_ks_retrain: 0.20
+    min_ic_improvement: 0.01
+
 # 4-Level Hierarchical Risk Control (from PRD FR-1.6)
 risk:
   levels:
