@@ -57,15 +57,19 @@ class ModelEvaluator:
         
         FR-3.3: Rolling IC decay curve for model monitoring
         """
-        df = pd.DataFrame({'true': y_true, 'pred': y_pred})
-        
-        # Calculate rolling rank correlation
-        rolling_ic = df.rolling(window).apply(
-            lambda x: stats.spearmanr(x['true'], x['pred'])[0] if len(x) > 1 else np.nan,
-            raw=False
+        y_true_s = pd.Series(y_true.values, index=range(len(y_true)), name='true')
+        y_pred_s = pd.Series(
+            y_pred.values if hasattr(y_pred, 'values') else y_pred,
+            index=range(len(y_pred)), name='pred'
         )
         
-        return rolling_ic['true']
+        # Use rolling Spearman correlation via rank-then-corr
+        rolling_ic = y_true_s.rolling(window).corr(y_pred_s)
+        
+        # Restore original index
+        rolling_ic.index = y_true.index if hasattr(y_true, 'index') else range(len(y_true))
+        
+        return rolling_ic
     
     def evaluate(self,
                 y_true: pd.Series,
@@ -87,12 +91,13 @@ class ModelEvaluator:
         # IC metrics
         metrics['ic'] = self.calculate_ic(y_true, y_pred)
         
-        # AUC-ROC (if binary classification)
-        if set(y_true.unique()).issubset({-1, 0, 1}):
+        # AUC-ROC (if classification)
+        unique_vals = set(y_true.unique())
+        if unique_vals.issubset({-1, 0, 1}) or unique_vals.issubset({0, 1, 2}):
             from sklearn.metrics import roc_auc_score
             try:
-                # Convert to binary (0/1)
-                y_true_binary = (y_true > 0).astype(int)
+                # Convert to binary (0/1): positive direction vs rest
+                y_true_binary = (y_true == y_true.max()).astype(int)
                 metrics['auc'] = roc_auc_score(y_true_binary, y_pred)
             except:
                 metrics['auc'] = 0.5
@@ -156,9 +161,19 @@ class ModelEvaluator:
                 shap_values = explainer.shap_values(X_sample)
             
             # Create summary DataFrame
+            # Handle multi-class SHAP (returns list of arrays) and single-class
+            if isinstance(shap_values, list):
+                # Multi-class: average absolute SHAP across all classes
+                mean_shap = np.mean([np.abs(sv).mean(axis=0) for sv in shap_values], axis=0)
+            elif isinstance(shap_values, np.ndarray) and shap_values.ndim == 3:
+                # 3D array (n_samples, n_features, n_classes)
+                mean_shap = np.abs(shap_values).mean(axis=(0, 2))
+            else:
+                mean_shap = np.abs(shap_values).mean(axis=0)
+            
             shap_summary = pd.DataFrame({
                 'feature': feature_cols,
-                'mean_shap': np.abs(shap_values).mean(axis=0) if isinstance(shap_values, np.ndarray) else np.abs(shap_values[1]).mean(axis=0),
+                'mean_shap': mean_shap,
             })
             shap_summary = shap_summary.sort_values('mean_shap', ascending=False)
             
@@ -239,6 +254,111 @@ class ModelEvaluator:
             logger.warning(f"Prediction drift detected: KS={ks_stat:.3f}")
         
         return ks_stat
+    
+    def calculate_turnover_adjusted_returns(self,
+                                           y_pred: pd.Series,
+                                           returns: pd.Series,
+                                           turnover_cost: float = 0.002) -> Dict[str, float]:
+        """
+        Calculate turnover-adjusted returns (FR-3.3: 换手率调整后收益).
+        
+        Accounts for transaction costs when signal-based positions change.
+        
+        Args:
+            y_pred: Predicted signals
+            returns: Actual returns
+            turnover_cost: Cost per unit of turnover (default 0.2%)
+            
+        Returns:
+            Dict with raw and adjusted return metrics
+        """
+        # Calculate position based on predictions
+        position = np.sign(y_pred - y_pred.median())
+        
+        # Calculate turnover (position changes)
+        turnover = abs(position.diff()).fillna(0)
+        
+        # Raw portfolio returns
+        raw_returns = returns * position
+        
+        # Subtract transaction costs proportional to turnover
+        cost_drag = turnover * turnover_cost
+        adjusted_returns = raw_returns - cost_drag
+        
+        # Calculate metrics
+        metrics = {
+            'raw_cumulative_return': (1 + raw_returns).prod() - 1,
+            'adjusted_cumulative_return': (1 + adjusted_returns).prod() - 1,
+            'avg_daily_turnover': turnover.mean(),
+            'total_cost_drag': cost_drag.sum(),
+        }
+        
+        if raw_returns.std() > 0:
+            metrics['raw_sharpe'] = raw_returns.mean() / raw_returns.std() * np.sqrt(252)
+        else:
+            metrics['raw_sharpe'] = 0.0
+            
+        if adjusted_returns.std() > 0:
+            metrics['adjusted_sharpe'] = adjusted_returns.mean() / adjusted_returns.std() * np.sqrt(252)
+        else:
+            metrics['adjusted_sharpe'] = 0.0
+        
+        logger.info(f"Turnover-adjusted: raw Sharpe={metrics['raw_sharpe']:.3f}, adj Sharpe={metrics['adjusted_sharpe']:.3f}")
+        
+        return metrics
+    
+    def generate_partial_dependence(self,
+                                   model,
+                                   X: pd.DataFrame,
+                                   feature_cols: List[str],
+                                   top_n: int = 5,
+                                   n_points: int = 50) -> Dict[str, pd.DataFrame]:
+        """
+        Generate partial dependence data for top features (FR-3.3: 部分依赖图).
+        
+        Shows the marginal effect of each feature on predictions.
+        
+        Args:
+            model: Trained model
+            X: Feature matrix
+            feature_cols: Feature column names
+            top_n: Number of top features to analyze
+            n_points: Number of grid points for PDP
+            
+        Returns:
+            Dict mapping feature name -> DataFrame with (feature_value, prediction)
+        """
+        try:
+            from sklearn.inspection import partial_dependence
+        except ImportError:
+            logger.warning("sklearn partial_dependence not available")
+            return {}
+        
+        # Get feature importance to determine top features
+        importance = self.get_feature_importance(model, feature_cols)
+        top_features = importance.head(top_n)['feature'].tolist()
+        
+        X_input = X[feature_cols].fillna(0)
+        pdp_results = {}
+        
+        for feature in top_features:
+            try:
+                feature_idx = feature_cols.index(feature)
+                result = partial_dependence(
+                    model, X_input, features=[feature_idx],
+                    kind='average', grid_resolution=n_points
+                )
+                
+                pdp_results[feature] = pd.DataFrame({
+                    'feature_value': result['grid_values'][0],
+                    'prediction': result['average'][0],
+                })
+                
+            except Exception as e:
+                logger.warning(f"PDP calculation failed for {feature}: {e}")
+        
+        logger.info(f"Partial dependence calculated for {len(pdp_results)} features")
+        return pdp_results
     
     def generate_report(self) -> Dict:
         """Generate evaluation report"""

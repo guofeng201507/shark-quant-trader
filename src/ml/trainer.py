@@ -19,7 +19,8 @@ from ..utils.logger import logger
 import xgboost as xgb
 import lightgbm as lgb
 from sklearn.linear_model import Ridge
-from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 
 
 @dataclass
@@ -30,8 +31,8 @@ class ModelConfig:
     
     # XGBoost params
     xgb_params: Dict = field(default_factory=lambda: {
-        'objective': 'binary:logistic',
-        'eval_metric': 'auc',
+        'objective': 'multi:softprob',
+        'eval_metric': 'mlogloss',
         'max_depth': 5,
         'learning_rate': 0.05,
         'n_estimators': 100,
@@ -44,8 +45,9 @@ class ModelConfig:
     
     # LightGBM params
     lgb_params: Dict = field(default_factory=lambda: {
-        'objective': 'binary',
-        'metric': 'auc',
+        'objective': 'multiclass',
+        'metric': 'multi_logloss',
+        'num_class': 3,
         'boosting_type': 'gbdt',
         'num_leaves': 31,
         'learning_rate': 0.05,
@@ -54,6 +56,17 @@ class ModelConfig:
         'bagging_freq': 5,
         'verbose': -1,
         'random_state': 42,
+    })
+    
+    # Random Forest params (PRD FR-3.2)
+    rf_params: Dict = field(default_factory=lambda: {
+        'n_estimators': 100,
+        'max_depth': 8,
+        'min_samples_split': 10,
+        'min_samples_leaf': 5,
+        'max_features': 'sqrt',
+        'random_state': 42,
+        'n_jobs': -1,
     })
     
     # Ridge params
@@ -114,6 +127,7 @@ class MLTrainer:
         self.config = config or ModelConfig()
         self.model = None
         self.scaler = StandardScaler()
+        self.label_encoder: Optional[LabelEncoder] = None
         self.metadata: Optional[TrainingMetadata] = None
         
         logger.info(f"MLTrainer initialized: {self.config.model_type}")
@@ -137,7 +151,15 @@ class MLTrainer:
         """
         # Prepare data
         X_train = X[feature_cols].fillna(0)
-        y_train = y
+        y_train = y.copy()
+        
+        # Encode labels for classification (XGBoost requires 0-indexed labels)
+        if self.config.target_type == 'binary':
+            self.label_encoder = LabelEncoder()
+            y_train = pd.Series(
+                self.label_encoder.fit_transform(y_train),
+                index=y_train.index, name=y_train.name
+            )
         
         # Scale features
         X_scaled = self.scaler.fit_transform(X_train)
@@ -196,6 +218,12 @@ class MLTrainer:
                 params['objective'] = 'regression'
                 return lgb.LGBMRegressor(**params)
         
+        elif self.config.model_type == 'random_forest':
+            if self.config.target_type == 'binary':
+                return RandomForestClassifier(**self.config.rf_params)
+            else:
+                return RandomForestRegressor(**self.config.rf_params)
+        
         elif self.config.model_type == 'ridge':
             return Ridge(**self.config.ridge_params)
         
@@ -214,6 +242,7 @@ class MLTrainer:
             'ic': [],
             'auc': [],
             'accuracy': [],
+            'train_ic': [],
         }
         
         for fold_idx, (train_idx, val_idx) in enumerate(cv_splitter.split(X, y)):
@@ -227,14 +256,17 @@ class MLTrainer:
             model = self._create_model()
             model.fit(X_tr, y_tr)
             
-            # Predict
+            # Predict on validation
             if hasattr(model, 'predict_proba'):
-                y_pred_proba = model.predict_proba(X_val)[:, 1]
+                y_pred_proba = model.predict_proba(X_val)
                 y_pred = model.predict(X_val)
                 
-                # AUC
+                # AUC (handle multi-class)
                 try:
-                    auc = roc_auc_score(y_val, y_pred_proba)
+                    if y_pred_proba.shape[1] == 2:
+                        auc = roc_auc_score(y_val, y_pred_proba[:, 1])
+                    else:
+                        auc = roc_auc_score(y_val, y_pred_proba, multi_class='ovr', average='macro')
                     scores['auc'].append(auc)
                 except:
                     pass
@@ -245,10 +277,16 @@ class MLTrainer:
             else:
                 y_pred = model.predict(X_val)
             
-            # Information Coefficient (IC)
+            # Validation IC
             ic = np.corrcoef(y_val, y_pred)[0, 1] if len(y_val) > 1 else 0
             if not np.isnan(ic):
                 scores['ic'].append(ic)
+            
+            # Train IC (for overfitting detection: Sharpe diff)
+            y_train_pred = model.predict(X_tr)
+            train_ic = np.corrcoef(y_tr, y_train_pred)[0, 1] if len(y_tr) > 1 else 0
+            if not np.isnan(train_ic):
+                scores['train_ic'].append(train_ic)
         
         # Aggregate scores
         result = {}
@@ -264,8 +302,9 @@ class MLTrainer:
         Detect overfitting based on CV scores.
         
         FR-3.2 Criteria:
-        - Train vs Val Sharpe diff > 0.5
+        - Train vs Val Sharpe diff > 0.5 (approximated via IC diff)
         - Val IC < 0.03
+        - IC variance too high (instability)
         """
         overfitting = False
         
@@ -281,10 +320,18 @@ class MLTrainer:
             logger.warning(f"Unstable IC detected: std={ic_std:.4f}")
             overfitting = True
         
+        # FR-3.2: Train vs Val IC diff > 0.5 (Sharpe proxy)
+        train_ic = cv_scores.get('train_ic_mean', 0)
+        val_ic = cv_scores.get('ic_mean', 0)
+        ic_diff = train_ic - val_ic
+        if ic_diff > 0.5:
+            logger.warning(f"Train-Val IC gap too large: {ic_diff:.4f} > 0.5 (overfitting)")
+            overfitting = True
+        
         return overfitting
     
     def predict(self, X: pd.DataFrame, feature_cols: List[str]) -> np.ndarray:
-        """Make predictions"""
+        """Make predictions (returns probability of positive class or regression values)"""
         if self.model is None:
             raise ValueError("Model not trained")
         
@@ -292,8 +339,124 @@ class MLTrainer:
         X_scaled = self.scaler.transform(X_input)
         
         if hasattr(self.model, 'predict_proba'):
-            return self.model.predict_proba(X_scaled)[:, 1]
+            proba = self.model.predict_proba(X_scaled)
+            if proba.shape[1] == 2:
+                return proba[:, 1]
+            else:
+                # Multi-class: return weighted sum as signal strength
+                # For 3 classes (-1, 0, 1 encoded as 0, 1, 2):
+                # Signal = P(up) - P(down)
+                return proba[:, -1] - proba[:, 0]
         return self.model.predict(X_scaled)
+    
+    def optimize_hyperparameters(self,
+                                X: pd.DataFrame,
+                                y: pd.Series,
+                                feature_cols: List[str],
+                                cv_splitter=None,
+                                max_trials: int = 100,
+                                timeout: int = 3600) -> Dict:
+        """
+        Hyperparameter optimization using Optuna (FR-3.2).
+        
+        Uses Tree-structured Parzen Estimator (TPE) for search.
+        Conservative search space to prevent overfitting optimization itself.
+        
+        Args:
+            X: Feature matrix
+            y: Target variable
+            feature_cols: Feature columns
+            cv_splitter: Cross-validation splitter
+            max_trials: Maximum optimization trials (PRD: 100)
+            timeout: Maximum time in seconds
+            
+        Returns:
+            Best hyperparameters dictionary
+        """
+        try:
+            import optuna
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+        except ImportError:
+            logger.warning("Optuna not installed, skipping hyperparameter optimization")
+            return {}
+        
+        X_train = X[feature_cols].fillna(0)
+        scaler = StandardScaler()
+        X_scaled = pd.DataFrame(
+            scaler.fit_transform(X_train),
+            index=X_train.index, columns=X_train.columns
+        )
+        
+        def objective(trial):
+            if self.config.model_type == 'xgboost':
+                params = {
+                    'max_depth': trial.suggest_int('max_depth', 3, 8),
+                    'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),
+                    'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+                    'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+                    'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+                    'reg_alpha': trial.suggest_float('reg_alpha', 0.01, 10.0, log=True),
+                    'reg_lambda': trial.suggest_float('reg_lambda', 0.01, 10.0, log=True),
+                    'random_state': 42,
+                }
+                if self.config.target_type == 'binary':
+                    params['objective'] = 'binary:logistic'
+                    params['eval_metric'] = 'auc'
+                    model = xgb.XGBClassifier(**params)
+                else:
+                    params['objective'] = 'reg:squarederror'
+                    model = xgb.XGBRegressor(**params)
+                    
+            elif self.config.model_type == 'lightgbm':
+                params = {
+                    'num_leaves': trial.suggest_int('num_leaves', 15, 63),
+                    'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),
+                    'feature_fraction': trial.suggest_float('feature_fraction', 0.6, 1.0),
+                    'bagging_fraction': trial.suggest_float('bagging_fraction', 0.6, 1.0),
+                    'bagging_freq': trial.suggest_int('bagging_freq', 1, 10),
+                    'verbose': -1,
+                    'random_state': 42,
+                }
+                if self.config.target_type == 'binary':
+                    model = lgb.LGBMClassifier(**params)
+                else:
+                    model = lgb.LGBMRegressor(**params)
+            else:
+                return 0.0
+            
+            # Cross-validate
+            ics = []
+            if cv_splitter is not None:
+                for train_idx, val_idx in cv_splitter.split(X_scaled, y):
+                    X_tr, X_val = X_scaled.iloc[train_idx], X_scaled.iloc[val_idx]
+                    y_tr, y_val = y.iloc[train_idx], y.iloc[val_idx]
+                    if len(y_tr) < 100 or len(y_val) < 10:
+                        continue
+                    model.fit(X_tr, y_tr)
+                    y_pred = model.predict(X_val)
+                    ic = np.corrcoef(y_val, y_pred)[0, 1] if len(y_val) > 1 else 0
+                    if not np.isnan(ic):
+                        ics.append(ic)
+            
+            return np.mean(ics) if ics else 0.0
+        
+        study = optuna.create_study(
+            direction='maximize',
+            sampler=optuna.samplers.TPESampler(seed=42)
+        )
+        study.optimize(objective, n_trials=max_trials, timeout=timeout)
+        
+        best_params = study.best_params
+        logger.info(f"Optuna optimization complete: {len(study.trials)} trials, best IC={study.best_value:.4f}")
+        logger.info(f"Best params: {best_params}")
+        
+        # Update config with best params
+        if self.config.model_type == 'xgboost':
+            self.config.xgb_params.update(best_params)
+        elif self.config.model_type == 'lightgbm':
+            self.config.lgb_params.update(best_params)
+        
+        return best_params
     
     def save(self, path: str):
         """Save model and metadata"""
@@ -307,6 +470,7 @@ class MLTrainer:
                 'model': self.model,
                 'scaler': self.scaler,
                 'config': self.config,
+                'label_encoder': self.label_encoder,
             }, f)
         
         # Save metadata
@@ -323,6 +487,7 @@ class MLTrainer:
         self.model = data['model']
         self.scaler = data['scaler']
         self.config = data['config']
+        self.label_encoder = data.get('label_encoder', None)
         
         # Load metadata
         meta_path = model_path.replace('.pkl', '.json')

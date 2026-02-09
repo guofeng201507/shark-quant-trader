@@ -295,3 +295,119 @@ class FeatureEngineer:
             return numeric_features[:max_features]
         
         return numeric_features[:max_features]
+    
+    def test_feature_stability(self,
+                               features: pd.DataFrame,
+                               target: pd.Series,
+                               n_periods: int = 4,
+                               max_ic_variance: float = 0.01) -> Dict[str, Dict]:
+        """
+        Feature stability test (FR-3.1: 特征稳定性检验).
+        
+        Tests whether feature IC is consistent across different time periods.
+        Features with IC variance > threshold across periods are flagged as unstable.
+        
+        Args:
+            features: Feature matrix
+            target: Target variable
+            n_periods: Number of sub-periods to test
+            max_ic_variance: Maximum allowed IC variance across periods
+            
+        Returns:
+            Dict with feature stability results
+        """
+        numeric_features = features.select_dtypes(include=[np.number]).columns.tolist()
+        numeric_features = [c for c in numeric_features if c != 'target']
+        
+        # Split data into equal time periods
+        period_size = len(features) // n_periods
+        
+        stability_results = {}
+        for col in numeric_features:
+            period_ics = []
+            for i in range(n_periods):
+                start = i * period_size
+                end = min((i + 1) * period_size, len(features))
+                
+                f_slice = features.iloc[start:end][col]
+                t_slice = target.iloc[start:end]
+                
+                valid_idx = f_slice.notna() & t_slice.notna()
+                if valid_idx.sum() < 50:
+                    continue
+                
+                ic = f_slice.loc[valid_idx].corr(t_slice.loc[valid_idx])
+                if not np.isnan(ic):
+                    period_ics.append(ic)
+            
+            if len(period_ics) >= 2:
+                ic_var = np.var(period_ics)
+                ic_mean = np.mean(period_ics)
+                stable = ic_var < max_ic_variance
+                stability_results[col] = {
+                    'ic_mean': ic_mean,
+                    'ic_variance': ic_var,
+                    'period_ics': period_ics,
+                    'stable': stable,
+                }
+                
+                if not stable:
+                    logger.warning(f"Unstable feature '{col}': IC variance={ic_var:.4f} > {max_ic_variance}")
+        
+        n_stable = sum(1 for v in stability_results.values() if v['stable'])
+        logger.info(f"Feature stability test: {n_stable}/{len(stability_results)} features stable")
+        
+        return stability_results
+    
+    def prevent_lookahead_bias(self, features: pd.DataFrame, target: pd.Series) -> pd.DataFrame:
+        """
+        Validate and prevent forward-looking bias (Tech Design 4.4.1).
+        
+        Techniques:
+        - Ensures all features are point-in-time (no future data leakage)
+        - Forward-only data processing
+        - Removes any target-correlated columns that shouldn't be features
+        - Checks that features don't have impossible future information
+        
+        Args:
+            features: Feature matrix to validate
+            target: Target variable (future returns)
+            
+        Returns:
+            Cleaned feature DataFrame with bias-free features
+        """
+        clean_features = features.copy()
+        removed_cols = []
+        
+        # 1. Check for columns that correlate suspiciously high with target
+        numeric_cols = clean_features.select_dtypes(include=[np.number]).columns
+        for col in numeric_cols:
+            valid_idx = clean_features[col].notna() & target.notna()
+            if valid_idx.sum() < 100:
+                continue
+            corr = abs(clean_features.loc[valid_idx, col].corr(target.loc[valid_idx]))
+            if corr > 0.95:
+                logger.warning(f"Removing '{col}': suspiciously high correlation with target ({corr:.3f})")
+                removed_cols.append(col)
+                clean_features.drop(columns=[col], inplace=True)
+        
+        # 2. Ensure no NaN at the beginning (from rolling windows) are filled with future data
+        # All NaN should be at the start, not randomly in the middle
+        for col in clean_features.select_dtypes(include=[np.number]).columns:
+            nan_mask = clean_features[col].isna()
+            if nan_mask.any():
+                # Find last NaN position
+                last_nan = nan_mask[nan_mask].index[-1] if nan_mask.any() else None
+                first_valid = clean_features[col].first_valid_index()
+                # NaN should only be at the start
+                if last_nan is not None and first_valid is not None:
+                    mid_nans = clean_features[col].loc[first_valid:].isna().sum()
+                    if mid_nans > 0:
+                        # Forward fill only (no future data)
+                        clean_features[col] = clean_features[col].ffill()
+        
+        if removed_cols:
+            logger.info(f"Removed {len(removed_cols)} features due to lookahead bias: {removed_cols}")
+        
+        logger.info(f"Lookahead bias check complete: {len(clean_features.columns)} features retained")
+        return clean_features

@@ -125,6 +125,7 @@ def run_phase3_demo():
     
     # Make predictions
     predictions = trainer.predict(features, selected_features)
+    predictions = pd.Series(predictions, index=target.index, name='predictions')
     
     # Calculate metrics
     metrics = evaluator.evaluate(target, predictions)
@@ -132,7 +133,8 @@ def run_phase3_demo():
     
     # Rolling IC
     rolling_ic = evaluator.calculate_rolling_ic(target, predictions, window=63)
-    logger.info(f"Current rolling IC (63d): {rolling_ic.iloc[-1]:.4f}")
+    last_valid_ic = rolling_ic.dropna().iloc[-1] if not rolling_ic.dropna().empty else 0.0
+    logger.info(f"Current rolling IC (63d): {last_valid_ic:.4f}")
     
     # Feature importance
     importance = evaluator.get_feature_importance(model, selected_features)
@@ -153,12 +155,12 @@ def run_phase3_demo():
     cs_momentum = CrossSectionalMomentum()
     momentum_rets = cs_momentum.calculate_momentum_returns(prices)
     
-    # Create traditional signal (simplified)
-    trad_signal = pd.Series(0, index=features.index)
-    for idx in features.index:
-        symbol = features.loc[idx, 'symbol']
-        if symbol in momentum_rets.index:
-            trad_signal.loc[idx] = momentum_rets[symbol]
+    # Create traditional signal: map each row's symbol to its momentum return
+    symbol_col = features['symbol'].values
+    trad_signal = pd.Series(
+        [momentum_rets.get(s, 0.0) for s in symbol_col],
+        index=features.index
+    )
     
     # Fuse signals
     fusion_config = FusionConfig(
@@ -168,7 +170,7 @@ def run_phase3_demo():
     
     fusion = SignalFusion(fusion_config)
     fused_signal = fusion.fuse(
-        pd.Series(predictions, index=target.index),
+        predictions,
         trad_signal,
         ml_ic=metrics.get('ic', 0),
         benchmark_ic=0.05
