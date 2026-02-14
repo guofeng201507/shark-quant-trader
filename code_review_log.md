@@ -543,6 +543,74 @@ PASS - All Phase 3 requirements implemented and validated with live data demo. 1
 
 ---
 
+## Review #8: Phase 4 NLP Sentiment Implementation
+
+**Date:** February 10, 2026  
+**Reviewer:** AI Assistant  
+**Scope:** Phase 4 NLP Sentiment Analysis implementation (FR-4.1, FR-4.2, FR-4.3)  
+**Reference Documents:** PRD v2.0 (Section 3.4), Tech Design v1.1 (Section 4.6)
+
+### Review Objective
+Implement Phase 4 NLP sentiment analysis pipeline per PRD v2.0 FR-4.1 (News Sentiment), FR-4.2 (COT Sentiment), FR-4.3 (Integration) requirements and Tech Design v1.1 Section 4.6 specifications.
+
+### Implementation Summary
+
+#### 1. Dependencies Added (pyproject.toml)
+- `torch>=2.0.0` - PyTorch for transformer models
+- `newsapi-python>=0.2.7` - NewsAPI client
+- `beautifulsoup4>=4.12.0` - HTML parsing
+- `lxml>=4.9.0` - XML/HTML processing
+- `html2text>=2020.1.16` - HTML to text conversion
+
+#### 2. Created `src/nlp/sentiment.py` (551 lines) - FR-4.1 News Sentiment
+- `NewsSentimentAnalyzer` class with FinBERT integration
+- Data sources: GDELT (free), RSS feeds (free), NewsAPI (optional)
+- Keyword-based asset tagging using ASSET_KEYWORDS mapping
+- Sentiment pipeline: News collection → Deduplication → Asset tagging → FinBERT → Aggregation → Momentum
+- Output: Daily sentiment scores (-1 to +1), 5-day sentiment momentum
+- Fallback: Keyword-based sentiment when FinBERT unavailable
+
+#### 3. Created `src/nlp/cot.py` (419 lines) - FR-4.2 COT Sentiment
+- `COTSentimentAnalyzer` class for CFTC COT report analysis
+- Data source: CFTC.gov (free, weekly)
+- Indicators: Non-commercial net long ratio, 3-year rolling percentile
+- Contrarian signals: >90% percentile = sell, <10% = buy
+- COT_COMMODITY_CODES mapping for tracked assets
+
+#### 4. Created `src/nlp/integrator.py` (365 lines) - FR-4.3 Integration
+- `SentimentFactorIntegrator` class for merging sentiment with Phase 3 ML features
+- Feature names: Sentiment_News_5d, Sentiment_COT_Percentile, Sentiment_Momentum
+- Weighted combination: 60% news, 40% COT
+- SHAP-based validation: Remove features with <5% contribution
+
+#### 5. Created `src/nlp/__init__.py` (26 lines)
+- Module exports for all NLP classes
+
+#### 6. Updated `config/strategy.yaml`
+- Added Phase 4 NLP config section with news, COT, and integration settings
+
+#### 7. Created `demo_phase4.py`
+- End-to-end demo of NLP pipeline
+
+### Compliance Status
+
+| Requirement | Status | Notes |
+|-------------|--------|-------|
+| FR-4.1 News Sentiment | PASS | GDELT, RSS, NewsAPI sources, FinBERT, keyword tagging |
+| FR-4.1 Sentiment Momentum | PASS | 5-day moving average |
+| FR-4.2 COT Data | PASS | CFTC.gov free source |
+| FR-4.2 Contrarian Signals | PASS | >90% sell, <10% buy |
+| FR-4.3 Integration | PASS | Weighted combination, SHAP validation |
+| FR-4.3 Feature Removal | PASS | Remove if <5% SHAP contribution |
+| Tech Design 4.6.1 | PASS | News sentiment module |
+| Tech Design 4.6.2 | PASS | COT sentiment module |
+| Tech Design 4.6.3 | PASS | Factor integration |
+
+### Final Status
+PASS - Phase 4 NLP sentiment implementation complete per PRD v2.0 and Tech Design v1.1. All files compile without syntax errors. Demo created for validation.
+
+---
+
 *Template for future reviews:*
 
 ## Review #N: [Title]

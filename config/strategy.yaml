@@ -119,6 +119,32 @@ ml:
     drift_ks_retrain: 0.20
     min_ic_improvement: 0.01
 
+# Phase 4: NLP Sentiment Analysis (FR-4.x)
+nlp:
+  # FR-4.1: News Sentiment
+  news:
+    model_name: "ProsusAI/finbert"  # FinBERT for financial text
+    use_gpu: false
+    batch_size: 32
+    sentiment_momentum_window: 5  # 5-day MA for momentum
+    min_articles_per_day: 3
+    # Data sources (at least one must be enabled)
+    use_gdelt: true
+    use_rss: true
+    # newsapi_key: ""  # Optional: set in .env if using NewsAPI
+  
+  # FR-4.2: COT Sentiment
+  cot:
+    lookback_years: 3  # 3-year rolling percentile
+    bullish_threshold: 0.90  # >90% = extreme bullish (contrarian sell)
+    bearish_threshold: 0.10  # <10% = extreme bearish (contrarian buy)
+  
+  # FR-4.3: Sentiment Integration
+  integration:
+    news_weight: 0.6  # Weight for news sentiment
+    cot_weight: 0.4   # Weight for COT sentiment
+    min_shap_contribution: 0.05  # Remove if < 5% SHAP contribution
+
 # 4-Level Hierarchical Risk Control (from PRD FR-1.6)
 risk:
   levels:
