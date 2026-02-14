@@ -78,8 +78,6 @@ venv.bak/
 
 # PyCharm
 
-# Qoder IDE
-.qoder/
 .idea/
 *.iml
 
