@@ -1,6 +1,6 @@
 # Intelligent Trading System - Technical Design Document
 
-> **Version**: 1.1  
+> **Version**: 1.2  
 > **Author**: Technical Architecture Team  
 > **Date**: 2026-02-08  
 > **Based on**: PRD v2.0  
@@ -10,9 +10,10 @@
 ## Revision History
 
 | Version | Date | Author | Changes |
-|---------|------|--------|---------|
+|---------|------|--------|--------|
 | 1.0 | 2026-02-08 | Technical Architecture Team | Initial draft |
 | 1.1 | 2026-02-08 | Technical Architecture Team | Added: asset universe specs, detailed factor definitions, re-entry logic, correlation monitoring, cost model, stress test scenarios, paper trading gates, Phase 2/4 strategy details, model lifecycle management, disaster recovery flow, interface definitions |
+| 1.2 | 2026-02-08 | Technical Architecture Team | Added: Phase 5 Paper Trading System (4.11), Phase 6 Live Trading System (4.12), Phase 7 DevOps Automation (4.13), updated roadmap (Section 15), aligned future extensibility with PRD (Section 13) |
 
 ---
 
@@ -929,6 +930,1046 @@ class StressTester:
         pass
 ```
 
+### 4.11 Paper Trading System (Phase 5 - NEW)
+
+#### 4.11.1 Paper Trading Engine
+
+```python
+class PaperTradingEngine:
+    """
+    Simulates real trading execution with realistic market conditions.
+    Based on PRD FR-5.1 requirements.
+    """
+    
+    # Slippage model parameters
+    SLIPPAGE_CONFIG = {
+        "base_slippage_bps": 5,           # 5 bps base slippage
+        "volatility_multiplier": 0.1,     # Additional slippage per 1% volatility
+        "size_impact_threshold": 10000,   # Orders above this get extra slippage
+        "size_impact_bps_per_10k": 2      # Additional bps per $10k over threshold
+    }
+    
+    # Execution delay model
+    DELAY_CONFIG = {
+        "min_delay_seconds": 60,          # Minimum 1 minute
+        "max_delay_seconds": 1800,        # Maximum 30 minutes
+        "market_order_delay": 60,         # Market orders: 1 minute
+        "limit_order_delay": 300,         # Limit orders: 5 minutes
+        "twap_interval_minutes": 15       # TWAP slice interval
+    }
+    
+    def __init__(self, market_data_provider: 'DataProvider'):
+        self.data_provider = market_data_provider
+        self.pending_orders: List['PaperOrder'] = []
+        self.executed_orders: List['PaperExecutionResult'] = []
+        self.portfolio_state: 'Portfolio' = None
+    
+    def submit_order(self, order: 'Order') -> 'PaperOrder':
+        """
+        Submit order for paper execution.
+        Calculates expected slippage and execution time.
+        """
+        slippage = self._calculate_slippage(order)
+        delay = self._calculate_delay(order)
+        
+        paper_order = PaperOrder(
+            order=order,
+            expected_slippage=slippage,
+            expected_execution_time=datetime.now() + timedelta(seconds=delay),
+            status="PENDING"
+        )
+        self.pending_orders.append(paper_order)
+        return paper_order
+    
+    def _calculate_slippage(self, order: 'Order') -> float:
+        """
+        Calculate realistic slippage based on:
+        - Base slippage
+        - Current volatility
+        - Order size relative to average volume
+        """
+        volatility = self.data_provider.get_current_volatility(order.symbol)
+        base = self.SLIPPAGE_CONFIG["base_slippage_bps"] / 10000
+        vol_impact = volatility * self.SLIPPAGE_CONFIG["volatility_multiplier"]
+        
+        # Size impact for large orders
+        order_value = order.quantity * order.limit_price if order.limit_price else 0
+        size_impact = 0
+        if order_value > self.SLIPPAGE_CONFIG["size_impact_threshold"]:
+            excess = order_value - self.SLIPPAGE_CONFIG["size_impact_threshold"]
+            size_impact = (excess / 10000) * self.SLIPPAGE_CONFIG["size_impact_bps_per_10k"] / 10000
+        
+        return base + vol_impact + size_impact
+    
+    def execute_pending_orders(self) -> List['PaperExecutionResult']:
+        """
+        Execute orders that have reached their execution time.
+        Simulates partial fills for large orders.
+        """
+        results = []
+        current_time = datetime.now()
+        
+        for paper_order in self.pending_orders:
+            if paper_order.expected_execution_time <= current_time:
+                result = self._execute_single_order(paper_order)
+                results.append(result)
+                self.executed_orders.append(result)
+        
+        # Remove executed orders from pending
+        self.pending_orders = [o for o in self.pending_orders 
+                              if o.expected_execution_time > current_time]
+        return results
+    
+    def _execute_single_order(self, paper_order: 'PaperOrder') -> 'PaperExecutionResult':
+        """
+        Execute a single order with slippage applied.
+        Returns execution result with actual fill price.
+        """
+        order = paper_order.order
+        current_price = self.data_provider.get_current_price(order.symbol)
+        
+        # Apply slippage (negative for buys, positive for sells)
+        if order.action == "BUY":
+            fill_price = current_price * (1 + paper_order.expected_slippage)
+        else:
+            fill_price = current_price * (1 - paper_order.expected_slippage)
+        
+        return PaperExecutionResult(
+            order=order,
+            fill_price=fill_price,
+            fill_quantity=order.quantity,
+            slippage_actual=paper_order.expected_slippage,
+            execution_time=datetime.now(),
+            status="FILLED"
+        )
+```
+
+#### 4.11.2 Real-Time Performance Monitor
+
+```python
+class RealTimePerformanceMonitor:
+    """
+    Real-time tracking of portfolio performance metrics.
+    Based on PRD FR-5.2 requirements.
+    """
+    
+    ROLLING_WINDOWS = {
+        "sharpe_short": 20,     # 20-day rolling Sharpe
+        "sharpe_medium": 60,   # 60-day rolling Sharpe
+        "sharpe_long": 252,    # 252-day rolling Sharpe
+        "ic_window": 20,       # 20-day rolling IC
+        "ks_window": 20        # 20-day KS comparison window
+    }
+    
+    IC_THRESHOLDS = {
+        "warning": 0.02,       # IC below this triggers warning
+        "critical": 0.0,       # IC below this triggers model review
+        "retrain": 0.02        # IC below this for 10 days triggers retrain
+    }
+    
+    KS_THRESHOLDS = {
+        "warning": 0.1,        # KS statistic above this triggers warning
+        "critical": 0.2        # KS above this triggers retrain
+    }
+    
+    def __init__(self, portfolio: 'Portfolio'):
+        self.portfolio = portfolio
+        self.returns_history: pd.Series = pd.Series(dtype=float)
+        self.predictions_history: pd.DataFrame = pd.DataFrame()
+        self.actuals_history: pd.DataFrame = pd.DataFrame()
+        self.feature_history: pd.DataFrame = pd.DataFrame()
+        self.training_feature_distribution: pd.DataFrame = None
+    
+    def update_nav(self, current_prices: Dict[str, float]) -> float:
+        """Update portfolio NAV in real-time"""
+        nav = self.portfolio.cash
+        for symbol, quantity in self.portfolio.positions.items():
+            nav += quantity * current_prices.get(symbol, 0)
+        self.portfolio.nav = nav
+        return nav
+    
+    def calculate_realtime_pnl(self) -> Dict[str, float]:
+        """Calculate real-time P&L breakdown"""
+        return {
+            "unrealized_pnl": self.portfolio.unrealized_pnl,
+            "realized_pnl": sum(self.portfolio.realized_pnl_history),
+            "total_pnl": self.portfolio.nav - self.portfolio.initial_capital,
+            "pnl_pct": (self.portfolio.nav / self.portfolio.initial_capital - 1) * 100
+        }
+    
+    def calculate_rolling_sharpe(self, window: int = 20) -> float:
+        """
+        Calculate rolling Sharpe ratio.
+        Uses annualized returns and volatility.
+        """
+        if len(self.returns_history) < window:
+            return 0.0
+        
+        recent_returns = self.returns_history.tail(window)
+        annualized_return = recent_returns.mean() * 252
+        annualized_vol = recent_returns.std() * np.sqrt(252)
+        
+        if annualized_vol == 0:
+            return 0.0
+        return annualized_return / annualized_vol
+    
+    def calculate_max_drawdown(self) -> float:
+        """Calculate current maximum drawdown from peak NAV"""
+        if self.portfolio.peak_nav == 0:
+            return 0.0
+        return (self.portfolio.peak_nav - self.portfolio.nav) / self.portfolio.peak_nav
+    
+    def track_ic(self, predictions: pd.Series, actuals: pd.Series) -> float:
+        """
+        Track Information Coefficient (IC) - correlation between predictions and actuals.
+        Rolling 20-day IC for model quality monitoring.
+        """
+        self.predictions_history = pd.concat([self.predictions_history, predictions])
+        self.actuals_history = pd.concat([self.actuals_history, actuals])
+        
+        if len(self.predictions_history) < self.ROLLING_WINDOWS["ic_window"]:
+            return np.nan
+        
+        recent_pred = self.predictions_history.tail(self.ROLLING_WINDOWS["ic_window"])
+        recent_actual = self.actuals_history.tail(self.ROLLING_WINDOWS["ic_window"])
+        
+        ic = recent_pred.corrwith(recent_actual).mean()
+        return ic
+    
+    def track_ks_drift(self, current_features: pd.DataFrame) -> float:
+        """
+        Track Kolmogorov-Smirnov statistic for concept drift detection.
+        Compares current feature distribution to training distribution.
+        """
+        if self.training_feature_distribution is None:
+            return 0.0
+        
+        ks_stats = []
+        for col in current_features.columns:
+            if col in self.training_feature_distribution.columns:
+                ks_stat, _ = scipy.stats.ks_2samp(
+                    self.training_feature_distribution[col].dropna(),
+                    current_features[col].dropna()
+                )
+                ks_stats.append(ks_stat)
+        
+        return np.mean(ks_stats) if ks_stats else 0.0
+    
+    def generate_daily_report(self) -> 'DailyPerformanceReport':
+        """Generate comprehensive daily performance report"""
+        return DailyPerformanceReport(
+            date=datetime.now().date(),
+            nav=self.portfolio.nav,
+            daily_return=self.returns_history.iloc[-1] if len(self.returns_history) > 0 else 0,
+            cumulative_return=(self.portfolio.nav / self.portfolio.initial_capital - 1),
+            sharpe_20d=self.calculate_rolling_sharpe(20),
+            sharpe_60d=self.calculate_rolling_sharpe(60),
+            max_drawdown=self.calculate_max_drawdown(),
+            rolling_ic=self.track_ic(self.predictions_history.tail(1), self.actuals_history.tail(1)),
+            ks_drift=self.track_ks_drift(self.feature_history.tail(self.ROLLING_WINDOWS["ks_window"]))
+        )
+```
+
+#### 4.11.3 Gate Validation System
+
+```python
+class GateValidationSystem:
+    """
+    Automated validation of paper trading gates.
+    Based on PRD FR-5.3 requirements.
+    """
+    
+    # Phase 1+2 Paper Trading Gates
+    PHASE_1_2_GATES = {
+        "min_trading_days": 63,           # Minimum 3 months
+        "min_sharpe": 0.5,                # Sharpe ratio threshold
+        "max_drawdown": 0.15,             # 15% max drawdown
+        "min_availability": 0.999,        # 99.9% system availability
+        "risk_level_coverage": [1, 2, 3, 4],  # All levels must trigger at least once
+        "min_rolling_ic": 0.02            # Rolling IC threshold
+    }
+    
+    # Phase 3 (ML) Additional Gates
+    PHASE_3_GATES = {
+        "ml_outperformance": True,        # ML must beat traditional
+        "min_trading_days": 63,           # Additional 3 months
+        "max_drawdown": 0.15,
+        "min_ic_sustained": 0.02          # IC must stay above threshold
+    }
+    
+    def __init__(self, performance_monitor: 'RealTimePerformanceMonitor'):
+        self.monitor = performance_monitor
+        self.trading_days_count = 0
+        self.risk_levels_triggered: Set[int] = set()
+        self.system_uptime_seconds = 0
+        self.total_seconds = 0
+        self.gate_history: List['GateCheckResult'] = []
+    
+    def record_trading_day(self) -> None:
+        """Record a completed trading day"""
+        self.trading_days_count += 1
+    
+    def record_risk_level_trigger(self, level: int) -> None:
+        """Record when a risk level is triggered"""
+        self.risk_levels_triggered.add(level)
+    
+    def validate_phase_1_2_gates(self) -> 'GateValidationResult':
+        """
+        Validate all Phase 1+2 paper trading gates.
+        Returns detailed result with pass/fail for each gate.
+        """
+        gates = self.PHASE_1_2_GATES
+        results = {}
+        
+        # Gate 1: Minimum trading days
+        results["min_trading_days"] = {
+            "required": gates["min_trading_days"],
+            "actual": self.trading_days_count,
+            "passed": self.trading_days_count >= gates["min_trading_days"]
+        }
+        
+        # Gate 2: Sharpe ratio
+        current_sharpe = self.monitor.calculate_rolling_sharpe(252)
+        results["sharpe_ratio"] = {
+            "required": f"> {gates['min_sharpe']}",
+            "actual": current_sharpe,
+            "passed": current_sharpe > gates["min_sharpe"]
+        }
+        
+        # Gate 3: Maximum drawdown
+        current_dd = self.monitor.calculate_max_drawdown()
+        results["max_drawdown"] = {
+            "required": f"< {gates['max_drawdown'] * 100}%",
+            "actual": f"{current_dd * 100:.2f}%",
+            "passed": current_dd < gates["max_drawdown"]
+        }
+        
+        # Gate 4: System availability
+        availability = self.system_uptime_seconds / self.total_seconds if self.total_seconds > 0 else 0
+        results["system_availability"] = {
+            "required": f"> {gates['min_availability'] * 100}%",
+            "actual": f"{availability * 100:.3f}%",
+            "passed": availability >= gates["min_availability"]
+        }
+        
+        # Gate 5: Risk level coverage
+        results["risk_level_coverage"] = {
+            "required": set(gates["risk_level_coverage"]),
+            "actual": self.risk_levels_triggered,
+            "passed": self.risk_levels_triggered >= set(gates["risk_level_coverage"])
+        }
+        
+        # Gate 6: Rolling IC (for ML phases)
+        # Only applicable if ML is active
+        
+        all_passed = all(r["passed"] for r in results.values())
+        
+        return GateValidationResult(
+            phase="Phase 1+2",
+            gates=results,
+            overall_passed=all_passed,
+            validation_date=datetime.now()
+        )
+    
+    def generate_deviation_report(self, backtest_results: 'BacktestResult') -> 'DeviationReport':
+        """
+        Compare paper trading results with backtest expectations.
+        Identify significant deviations for investigation.
+        """
+        paper_sharpe = self.monitor.calculate_rolling_sharpe(252)
+        paper_dd = self.monitor.calculate_max_drawdown()
+        paper_return = (self.monitor.portfolio.nav / self.monitor.portfolio.initial_capital - 1)
+        
+        return DeviationReport(
+            metric_comparisons={
+                "sharpe_ratio": {
+                    "backtest": backtest_results.sharpe_ratio,
+                    "paper": paper_sharpe,
+                    "deviation": abs(paper_sharpe - backtest_results.sharpe_ratio)
+                },
+                "max_drawdown": {
+                    "backtest": backtest_results.max_drawdown,
+                    "paper": paper_dd,
+                    "deviation": abs(paper_dd - backtest_results.max_drawdown)
+                },
+                "return": {
+                    "backtest": backtest_results.total_return,
+                    "paper": paper_return,
+                    "deviation": abs(paper_return - backtest_results.total_return)
+                }
+            },
+            significant_deviations=[
+                m for m, v in {
+                    "sharpe_ratio": abs(paper_sharpe - backtest_results.sharpe_ratio) > 0.3,
+                    "max_drawdown": abs(paper_dd - backtest_results.max_drawdown) > 0.05,
+                    "return": abs(paper_return - backtest_results.total_return) > 0.05
+                }.items() if v
+            ]
+        )
+```
+
+### 4.12 Live Trading System (Phase 6 - NEW)
+
+#### 4.12.1 Broker Integration Layer
+
+```python
+from abc import ABC, abstractmethod
+from typing import Dict, List, Optional
+import asyncio
+
+class BrokerAdapter(ABC):
+    """
+    Abstract broker adapter for multi-broker support.
+    Based on PRD FR-6.1 requirements.
+    """
+    
+    @abstractmethod
+    async def connect(self) -> bool:
+        """Establish connection to broker API"""
+        pass
+    
+    @abstractmethod
+    async def get_account_info(self) -> 'AccountInfo':
+        """Get account balance, buying power, positions"""
+        pass
+    
+    @abstractmethod
+    async def submit_order(self, order: 'Order') -> 'OrderResponse':
+        """Submit order to broker"""
+        pass
+    
+    @abstractmethod
+    async def get_order_status(self, order_id: str) -> 'OrderStatus':
+        """Get status of submitted order"""
+        pass
+    
+    @abstractmethod
+    async def cancel_order(self, order_id: str) -> bool:
+        """Cancel pending order"""
+        pass
+    
+    @abstractmethod
+    async def subscribe_positions(self, callback: callable) -> None:
+        """Subscribe to real-time position updates via WebSocket"""
+        pass
+
+
+class AlpacaAdapter(BrokerAdapter):
+    """
+    Alpaca broker adapter for US ETFs.
+    Supports REST API and WebSocket streaming.
+    """
+    
+    def __init__(self, api_key: str, secret_key: str, paper: bool = False):
+        self.api_key = api_key
+        self.secret_key = secret_key
+        self.base_url = "https://paper-api.alpaca.markets" if paper else "https://api.alpaca.markets"
+        self.ws_url = "wss://stream.data.alpaca.markets/v2/iex"
+        self.session = None
+        self.ws_connection = None
+    
+    async def connect(self) -> bool:
+        """Connect to Alpaca API"""
+        # Implementation: Initialize aiohttp session, authenticate
+        pass
+    
+    async def submit_order(self, order: 'Order') -> 'OrderResponse':
+        """
+        Submit order to Alpaca.
+        Supports: market, limit, stop, stop_limit orders.
+        """
+        payload = {
+            "symbol": order.symbol,
+            "qty": order.quantity,
+            "side": order.action.lower(),
+            "type": order.order_type.lower(),
+            "time_in_force": "day"
+        }
+        if order.limit_price:
+            payload["limit_price"] = order.limit_price
+        
+        # POST to /v2/orders
+        pass
+
+
+class BinanceAdapter(BrokerAdapter):
+    """
+    Binance adapter for cryptocurrency trading.
+    Supports spot and futures markets.
+    """
+    
+    def __init__(self, api_key: str, secret_key: str, testnet: bool = False):
+        self.api_key = api_key
+        self.secret_key = secret_key
+        self.base_url = "https://testnet.binance.vision" if testnet else "https://api.binance.com"
+        self.futures_url = "https://testnet.binancefuture.com" if testnet else "https://fapi.binance.com"
+    
+    async def submit_order(self, order: 'Order') -> 'OrderResponse':
+        """
+        Submit order to Binance.
+        Handles signature generation for authenticated endpoints.
+        """
+        pass
+
+
+class IBKRAdapter(BrokerAdapter):
+    """
+    Interactive Brokers adapter for global markets.
+    Uses TWS API via ib_insync library.
+    """
+    
+    def __init__(self, host: str = "127.0.0.1", port: int = 7497):
+        self.host = host
+        self.port = port
+        self.ib = None  # ib_insync.IB instance
+    
+    async def connect(self) -> bool:
+        """Connect to TWS/Gateway"""
+        pass
+```
+
+#### 4.12.2 Order Management System
+
+```python
+class OrderManagementSystem:
+    """
+    Intelligent order management with routing and retry logic.
+    Based on PRD FR-6.2 requirements.
+    """
+    
+    # Order routing configuration
+    ROUTING_CONFIG = {
+        "US_ETF": "alpaca",
+        "CRYPTO": "binance",
+        "GLOBAL": "ibkr"
+    }
+    
+    # Order splitting thresholds
+    SPLIT_CONFIG = {
+        "max_single_order_usd": 50000,     # Split orders above this
+        "max_pct_of_volume": 0.01,         # Max 1% of average daily volume
+        "slice_count": 5,                   # Number of slices for TWAP
+        "slice_interval_minutes": 5         # Time between slices
+    }
+    
+    # Retry configuration
+    RETRY_CONFIG = {
+        "max_retries": 3,
+        "retry_delay_seconds": 5,
+        "exponential_backoff": True
+    }
+    
+    def __init__(self, brokers: Dict[str, 'BrokerAdapter']):
+        self.brokers = brokers
+        self.pending_orders: Dict[str, 'ManagedOrder'] = {}
+        self.order_log: List['OrderLogEntry'] = []
+    
+    def route_order(self, order: 'Order') -> str:
+        """
+        Determine which broker to use for the order.
+        Based on asset type and availability.
+        """
+        if order.symbol.endswith("-USD") or order.symbol in ["BTC", "ETH"]:
+            return "binance"
+        elif order.symbol in ["GLD", "SPY", "QQQ", "SLV", "XLK", "XLF", "TLT"]:
+            return "alpaca"
+        else:
+            return "ibkr"
+    
+    def should_split_order(self, order: 'Order', current_price: float) -> bool:
+        """Determine if order should be split into smaller pieces"""
+        order_value = order.quantity * current_price
+        return order_value > self.SPLIT_CONFIG["max_single_order_usd"]
+    
+    def split_order(self, order: 'Order', current_price: float) -> List['Order']:
+        """
+        Split large order into TWAP slices.
+        Returns list of smaller orders to be executed over time.
+        """
+        total_value = order.quantity * current_price
+        slice_count = min(
+            self.SPLIT_CONFIG["slice_count"],
+            int(total_value / self.SPLIT_CONFIG["max_single_order_usd"]) + 1
+        )
+        
+        slice_quantity = order.quantity / slice_count
+        slices = []
+        
+        for i in range(slice_count):
+            slice_order = Order(
+                symbol=order.symbol,
+                action=order.action,
+                quantity=slice_quantity,
+                order_type="LIMIT",
+                limit_price=current_price * (1.001 if order.action == "BUY" else 0.999),
+                reason=f"{order.reason} (slice {i+1}/{slice_count})"
+            )
+            slices.append(slice_order)
+        
+        return slices
+    
+    async def execute_with_retry(self, order: 'Order') -> 'OrderExecutionResult':
+        """
+        Execute order with retry logic on failure.
+        Implements exponential backoff.
+        """
+        broker_name = self.route_order(order)
+        broker = self.brokers[broker_name]
+        
+        for attempt in range(self.RETRY_CONFIG["max_retries"]):
+            try:
+                result = await broker.submit_order(order)
+                self._log_order(order, result, broker_name, attempt + 1)
+                return result
+            except Exception as e:
+                if attempt < self.RETRY_CONFIG["max_retries"] - 1:
+                    delay = self.RETRY_CONFIG["retry_delay_seconds"] * (2 ** attempt if self.RETRY_CONFIG["exponential_backoff"] else 1)
+                    await asyncio.sleep(delay)
+                else:
+                    self._log_order(order, None, broker_name, attempt + 1, error=str(e))
+                    raise
+    
+    def _log_order(self, order: 'Order', result: Optional['OrderResponse'], 
+                   broker: str, attempt: int, error: str = None) -> None:
+        """Log all order activity for audit trail"""
+        self.order_log.append(OrderLogEntry(
+            timestamp=datetime.now(),
+            order=order,
+            broker=broker,
+            attempt=attempt,
+            result=result,
+            error=error
+        ))
+```
+
+#### 4.12.3 Capital Transition Manager
+
+```python
+class CapitalTransitionManager:
+    """
+    Manages gradual capital deployment from paper to live trading.
+    Based on PRD FR-6.2 capital transition requirements.
+    """
+    
+    # Transition stages
+    STAGES = [
+        {"name": "Stage 1", "capital_pct": 0.10, "duration_weeks": 4, "loss_limit": 0.05},
+        {"name": "Stage 2", "capital_pct": 0.25, "duration_weeks": 4, "loss_limit": 0.05},
+        {"name": "Stage 3", "capital_pct": 0.50, "duration_weeks": 2, "loss_limit": 0.05},
+        {"name": "Stage 4", "capital_pct": 1.00, "duration_weeks": None, "loss_limit": 0.10}  # Final stage
+    ]
+    
+    # Rollback triggers
+    ROLLBACK_TRIGGERS = {
+        "daily_loss_threshold": 0.03,      # Single day loss > 3% triggers evaluation
+        "cumulative_dd_threshold": 0.10,   # Cumulative drawdown > 10% rolls back
+        "system_failure_count": 2           # 2+ failures rolls back to paper
+    }
+    
+    def __init__(self, total_capital: float):
+        self.total_capital = total_capital
+        self.current_stage = 0
+        self.stage_start_date: datetime = None
+        self.stage_start_nav: float = None
+        self.system_failure_count = 0
+        self.transition_log: List['TransitionEvent'] = []
+    
+    def get_current_allocation(self) -> float:
+        """Get current capital allocation amount"""
+        return self.total_capital * self.STAGES[self.current_stage]["capital_pct"]
+    
+    def can_advance_stage(self, current_nav: float, days_in_stage: int) -> Tuple[bool, str]:
+        """
+        Check if conditions are met to advance to next stage.
+        Returns (can_advance, reason)
+        """
+        stage = self.STAGES[self.current_stage]
+        
+        # Check if at final stage
+        if self.current_stage >= len(self.STAGES) - 1:
+            return False, "Already at final stage"
+        
+        # Check duration requirement
+        required_days = stage["duration_weeks"] * 7 if stage["duration_weeks"] else float('inf')
+        if days_in_stage < required_days:
+            return False, f"Need {required_days - days_in_stage} more days in current stage"
+        
+        # Check loss limit
+        stage_return = (current_nav - self.stage_start_nav) / self.stage_start_nav
+        if stage_return < -stage["loss_limit"]:
+            return False, f"Stage loss {stage_return:.2%} exceeds limit {-stage['loss_limit']:.2%}"
+        
+        return True, "All conditions met for advancement"
+    
+    def check_rollback_triggers(self, daily_return: float, cumulative_dd: float) -> Optional[str]:
+        """
+        Check if any rollback conditions are triggered.
+        Returns rollback action or None.
+        """
+        # Daily loss trigger
+        if daily_return < -self.ROLLBACK_TRIGGERS["daily_loss_threshold"]:
+            self._log_transition("EVALUATION", f"Daily loss {daily_return:.2%} exceeded threshold")
+            return "EVALUATE"
+        
+        # Cumulative drawdown trigger
+        if cumulative_dd > self.ROLLBACK_TRIGGERS["cumulative_dd_threshold"]:
+            self._log_transition("ROLLBACK", f"Cumulative DD {cumulative_dd:.2%} exceeded threshold")
+            return "ROLLBACK_STAGE"
+        
+        # System failure trigger
+        if self.system_failure_count >= self.ROLLBACK_TRIGGERS["system_failure_count"]:
+            self._log_transition("ROLLBACK_TO_PAPER", f"{self.system_failure_count} system failures")
+            return "ROLLBACK_TO_PAPER"
+        
+        return None
+    
+    def advance_stage(self) -> bool:
+        """Advance to next stage if conditions are met"""
+        if self.current_stage < len(self.STAGES) - 1:
+            self.current_stage += 1
+            self.stage_start_date = datetime.now()
+            self._log_transition("ADVANCE", f"Advanced to {self.STAGES[self.current_stage]['name']}")
+            return True
+        return False
+    
+    def rollback_stage(self) -> bool:
+        """Rollback to previous stage"""
+        if self.current_stage > 0:
+            self.current_stage -= 1
+            self.stage_start_date = datetime.now()
+            self._log_transition("ROLLBACK", f"Rolled back to {self.STAGES[self.current_stage]['name']}")
+            return True
+        return False
+    
+    def _log_transition(self, action: str, reason: str) -> None:
+        """Log transition event for audit"""
+        self.transition_log.append(TransitionEvent(
+            timestamp=datetime.now(),
+            action=action,
+            from_stage=self.current_stage,
+            reason=reason
+        ))
+```
+
+#### 4.12.4 Live Monitoring System
+
+```python
+class LiveMonitoringSystem:
+    """
+    Real-time monitoring for live trading operations.
+    Based on PRD FR-6.3 requirements.
+    """
+    
+    # System health thresholds
+    HEALTH_THRESHOLDS = {
+        "api_response_time_ms": 1000,      # Max 1 second API response
+        "data_freshness_minutes": 30,       # Data must be < 30 min old
+        "memory_usage_pct": 80,             # Max 80% memory usage
+        "cpu_usage_pct": 80                 # Max 80% CPU usage
+    }
+    
+    # Strategy performance alerts
+    PERFORMANCE_ALERTS = {
+        "deviation_sigma": 2.0,             # Alert if performance deviates > 2 sigma
+        "sharpe_warning": 0.3,              # Sharpe below this triggers warning
+        "drawdown_warning": 0.10,           # Drawdown above this triggers warning
+        "drawdown_critical": 0.15           # Drawdown above this triggers critical alert
+    }
+    
+    # Model quality thresholds
+    MODEL_QUALITY = {
+        "ic_warning": 0.02,                 # IC below this triggers warning
+        "ic_retrain": 0.02,                 # IC below this for 10 days triggers retrain
+        "ks_warning": 0.1,                  # KS above this triggers warning
+        "ks_retrain": 0.2                   # KS above this triggers retrain
+    }
+    
+    def __init__(self, alert_manager: 'AlertManager'):
+        self.alert_manager = alert_manager
+        self.health_history: List['HealthCheck'] = []
+        self.performance_history: List['PerformanceSnapshot'] = []
+        self.ic_history: List[float] = []
+        self.ks_history: List[float] = []
+    
+    async def check_system_health(self) -> 'HealthReport':
+        """
+        Comprehensive system health check.
+        Returns health report with any issues identified.
+        """
+        issues = []
+        
+        # Check API response times
+        api_times = await self._check_api_latencies()
+        for api, latency in api_times.items():
+            if latency > self.HEALTH_THRESHOLDS["api_response_time_ms"]:
+                issues.append(f"{api} API latency {latency}ms exceeds threshold")
+        
+        # Check data freshness
+        data_age = self._check_data_freshness()
+        if data_age > self.HEALTH_THRESHOLDS["data_freshness_minutes"]:
+            issues.append(f"Data is {data_age} minutes old, exceeds {self.HEALTH_THRESHOLDS['data_freshness_minutes']} min threshold")
+        
+        # Check resource usage
+        memory_pct, cpu_pct = self._check_resource_usage()
+        if memory_pct > self.HEALTH_THRESHOLDS["memory_usage_pct"]:
+            issues.append(f"Memory usage {memory_pct}% exceeds threshold")
+        if cpu_pct > self.HEALTH_THRESHOLDS["cpu_usage_pct"]:
+            issues.append(f"CPU usage {cpu_pct}% exceeds threshold")
+        
+        health_status = "HEALTHY" if not issues else "DEGRADED"
+        return HealthReport(status=health_status, issues=issues, timestamp=datetime.now())
+    
+    def check_performance_deviation(self, daily_return: float, 
+                                   expected_daily_std: float) -> Optional['Alert']:
+        """
+        Check if daily performance deviates significantly from expectation.
+        Returns alert if deviation exceeds threshold.
+        """
+        deviation_sigma = abs(daily_return) / expected_daily_std if expected_daily_std > 0 else 0
+        
+        if deviation_sigma > self.PERFORMANCE_ALERTS["deviation_sigma"]:
+            return Alert(
+                level="WARNING",
+                message=f"Daily return {daily_return:.2%} deviates {deviation_sigma:.1f} sigma from expectation",
+                context={"daily_return": daily_return, "deviation_sigma": deviation_sigma}
+            )
+        return None
+    
+    def check_model_quality(self, current_ic: float, current_ks: float) -> List['Alert']:
+        """
+        Monitor ML model quality via IC and KS metrics.
+        Returns list of alerts if thresholds breached.
+        """
+        alerts = []
+        self.ic_history.append(current_ic)
+        self.ks_history.append(current_ks)
+        
+        # Check IC
+        if current_ic < self.MODEL_QUALITY["ic_warning"]:
+            alerts.append(Alert(
+                level="WARNING",
+                message=f"Rolling IC {current_ic:.4f} below warning threshold {self.MODEL_QUALITY['ic_warning']}",
+                context={"action": "PREPARE_RETRAIN"}
+            ))
+        
+        # Check if IC has been low for 10 consecutive days
+        if len(self.ic_history) >= 10:
+            recent_ic = self.ic_history[-10:]
+            if all(ic < self.MODEL_QUALITY["ic_retrain"] for ic in recent_ic):
+                alerts.append(Alert(
+                    level="CRITICAL",
+                    message=f"IC below {self.MODEL_QUALITY['ic_retrain']} for 10 consecutive days - triggering retrain",
+                    context={"action": "TRIGGER_RETRAIN"}
+                ))
+        
+        # Check KS drift
+        if current_ks > self.MODEL_QUALITY["ks_retrain"]:
+            alerts.append(Alert(
+                level="CRITICAL",
+                message=f"KS drift {current_ks:.4f} exceeds retrain threshold {self.MODEL_QUALITY['ks_retrain']}",
+                context={"action": "TRIGGER_RETRAIN"}
+            ))
+        elif current_ks > self.MODEL_QUALITY["ks_warning"]:
+            alerts.append(Alert(
+                level="WARNING",
+                message=f"KS drift {current_ks:.4f} exceeds warning threshold {self.MODEL_QUALITY['ks_warning']}",
+                context={"action": "MONITOR_CLOSELY"}
+            ))
+        
+        return alerts
+    
+    async def _check_api_latencies(self) -> Dict[str, int]:
+        """Check response times for all connected APIs"""
+        # Implementation: Ping each broker API and measure response time
+        pass
+    
+    def _check_data_freshness(self) -> int:
+        """Check age of most recent market data in minutes"""
+        # Implementation: Compare latest data timestamp to current time
+        pass
+    
+    def _check_resource_usage(self) -> Tuple[float, float]:
+        """Check current memory and CPU usage"""
+        import psutil
+        return psutil.virtual_memory().percent, psutil.cpu_percent()
+```
+
+### 4.13 DevOps Automation (Phase 7 - NEW)
+
+#### 4.13.1 CI/CD Pipeline
+
+```python
+class CICDPipeline:
+    """
+    Automated deployment pipeline for trading system.
+    Based on PRD Phase 7 requirements.
+    """
+    
+    # Pipeline stages
+    STAGES = [
+        "lint",           # Code quality (black, ruff, mypy)
+        "test_unit",      # Unit tests (pytest)
+        "test_integration", # Integration tests
+        "security_scan",  # Security scanning (bandit, safety)
+        "build",          # Docker build
+        "deploy_staging", # Deploy to staging
+        "test_staging",   # Smoke tests on staging
+        "deploy_prod"     # Deploy to production
+    ]
+    
+    # Deployment targets
+    TARGETS = {
+        "staging": {
+            "host": "staging.trading.internal",
+            "requires_approval": False
+        },
+        "production": {
+            "host": "prod.trading.internal",
+            "requires_approval": True,
+            "approval_timeout_hours": 24
+        }
+    }
+    
+    # Performance targets
+    TARGETS_METRICS = {
+        "deployment_time_minutes": 10,     # Target < 10 minutes
+        "rollback_time_minutes": 2,        # Target < 2 minutes
+        "test_coverage_pct": 80            # Minimum 80% coverage
+    }
+```
+
+#### 4.13.2 Automated Monitoring & Alerting
+
+```python
+class AutomatedMonitoring:
+    """
+    Automated monitoring with self-healing capabilities.
+    Target: MTTR < 5 minutes
+    """
+    
+    # Auto-remediation actions
+    REMEDIATION_RULES = {
+        "high_memory": {
+            "condition": "memory_pct > 85",
+            "actions": ["clear_cache", "restart_non_critical_services"]
+        },
+        "api_timeout": {
+            "condition": "api_latency > 5000",
+            "actions": ["switch_to_backup_api", "alert_oncall"]
+        },
+        "data_stale": {
+            "condition": "data_age_minutes > 60",
+            "actions": ["force_data_refresh", "switch_to_backup_source"]
+        },
+        "broker_disconnect": {
+            "condition": "broker_connected == False",
+            "actions": ["reconnect_broker", "pause_trading", "alert_critical"]
+        }
+    }
+    
+    # Escalation policy
+    ESCALATION = {
+        "level_1": {"delay_minutes": 0, "channels": ["slack"]},
+        "level_2": {"delay_minutes": 5, "channels": ["slack", "email"]},
+        "level_3": {"delay_minutes": 15, "channels": ["slack", "email", "pagerduty"]}
+    }
+    
+    async def auto_remediate(self, issue: 'SystemIssue') -> 'RemediationResult':
+        """
+        Attempt automatic remediation of system issues.
+        Returns result indicating if remediation was successful.
+        """
+        rule = self.REMEDIATION_RULES.get(issue.type)
+        if not rule:
+            return RemediationResult(success=False, reason="No remediation rule")
+        
+        for action in rule["actions"]:
+            try:
+                await self._execute_action(action)
+            except Exception as e:
+                return RemediationResult(success=False, reason=str(e))
+        
+        return RemediationResult(success=True, actions_taken=rule["actions"])
+    
+    async def _execute_action(self, action: str) -> None:
+        """Execute a remediation action"""
+        actions_map = {
+            "clear_cache": self._clear_cache,
+            "restart_non_critical_services": self._restart_services,
+            "switch_to_backup_api": self._switch_api,
+            "force_data_refresh": self._refresh_data,
+            "reconnect_broker": self._reconnect_broker,
+            "pause_trading": self._pause_trading,
+            "alert_oncall": self._alert_oncall,
+            "alert_critical": self._alert_critical
+        }
+        await actions_map[action]()
+```
+
+#### 4.13.3 Automated Backup System
+
+```python
+class AutomatedBackupSystem:
+    """
+    Automated backup and recovery system.
+    Ensures data integrity and quick recovery.
+    """
+    
+    BACKUP_CONFIG = {
+        "database": {
+            "frequency": "hourly",
+            "retention_days": 30,
+            "destination": "s3://trading-backups/db/"
+        },
+        "state": {
+            "frequency": "every_trade",
+            "retention_days": 90,
+            "destination": "s3://trading-backups/state/"
+        },
+        "config": {
+            "frequency": "on_change",
+            "retention_days": 365,
+            "destination": "s3://trading-backups/config/"
+        },
+        "logs": {
+            "frequency": "daily",
+            "retention_days": 90,
+            "destination": "s3://trading-backups/logs/"
+        }
+    }
+    
+    async def perform_backup(self, backup_type: str) -> 'BackupResult':
+        """Perform backup of specified type"""
+        config = self.BACKUP_CONFIG[backup_type]
+        
+        # Create backup
+        backup_path = await self._create_backup(backup_type)
+        
+        # Upload to S3
+        s3_path = await self._upload_to_s3(backup_path, config["destination"])
+        
+        # Verify backup integrity
+        verified = await self._verify_backup(s3_path)
+        
+        # Clean up old backups
+        await self._cleanup_old_backups(config["destination"], config["retention_days"])
+        
+        return BackupResult(
+            success=verified,
+            backup_type=backup_type,
+            s3_path=s3_path,
+            timestamp=datetime.now()
+        )
+    
+    async def restore_from_backup(self, backup_type: str, 
+                                 timestamp: datetime = None) -> 'RestoreResult':
+        """
+        Restore system from backup.
+        If timestamp not specified, uses most recent backup.
+        """
+        pass
+```
+
 ---
 
 ## 5. Data Models
@@ -1337,31 +2378,54 @@ Operational Safeguards:
 
 ## 13. Future Extensibility
 
-### 13.1 Planned Extensions
+### 13.1 Phase 5-7 Implementation (PRD Aligned)
 
 ```
-Phase 5: Advanced Features
+Phase 5: Paper Trading System (Week 30-41)
+- Paper trading engine with realistic slippage/delay simulation
+- Real-time performance monitoring (IC, KS, Sharpe, Drawdown)
+- Automated gate validation system
+- Paper vs backtest deviation analysis
+
+Phase 6: Live Trading & Monitoring (Week 42-52)
+- Multi-broker integration (Alpaca, Binance, IBKR)
+- Intelligent order management system
+- Capital transition management (10% → 25% → 50% → 100%)
+- Real-time monitoring with automated alerts
+
+Phase 7: DevOps Automation (Week 53+)
+- CI/CD pipeline with < 10 minute deployment
+- Automated monitoring with MTTR < 5 minutes
+- Self-healing remediation rules
+- Automated backup with S3 retention
+```
+
+### 13.2 Future Extensions (Post Phase 7)
+
+```
+Advanced Features:
 - Real options pricing for volatility trading
 - Reinforcement learning for dynamic position sizing
 - Alternative data sources (satellite imagery, web scraping)
 - Cross-market arbitrage opportunities
 
-Phase 6: Institutional Features
+Institutional Features:
 - Multi-account management
 - Custom strategy marketplace
 - Client portal and reporting
 - Regulatory reporting automation
 ```
 
-### 13.2 Architecture Flexibility Points
+### 13.3 Architecture Flexibility Points
 
 ```
 Designed Extension Points:
 1. Strategy plugins: Pluggable strategy interface
 2. Data adapters: Easy addition of new data sources
-3. Broker integrations: Standardized execution interface
+3. Broker integrations: Standardized execution interface (see Section 4.12.1)
 4. ML model registry: Version-controlled model deployment
 5. Risk modules: Configurable risk rules and constraints
+6. Monitoring hooks: Extensible alerting and remediation
 ```
 
 ---
@@ -1486,7 +2550,36 @@ class AlertManagerInterface(ABC):
 
 ## 15. Implementation Roadmap
 
-See detailed timeline in PRD Section 9. This technical design supports the 4-phase development plan with clear milestones and gates.
+### 15.1 Phase 1-4 (PRD Section 9)
+
+See detailed timeline in PRD Section 9 for Phase 1-4 development plan.
+
+### 15.2 Phase 5: Paper Trading System (Week 30-41)
+
+| Week | Component | Deliverables | Gate Criteria |
+|------|-----------|--------------|---------------|
+| 30-32 | Paper Trading Engine | `PaperTradingEngine` class, slippage/delay models | Simulation accuracy > 95% vs expected |
+| 33-35 | Performance Monitor | `RealTimePerformanceMonitor`, IC/KS tracking | Data latency < 1 minute |
+| 36-38 | Gate Validation | `GateValidationSystem`, deviation reports | Automated gate checks passing |
+| 39-41 | Paper Trading Run | 3-month paper trading execution | Sharpe > 0.5, MaxDD < 15% |
+
+### 15.3 Phase 6: Live Trading (Week 42-52)
+
+| Week | Component | Deliverables | Gate Criteria |
+|------|-----------|--------------|---------------|
+| 42-44 | Broker Integration | `AlpacaAdapter`, `BinanceAdapter`, `IBKRAdapter` | API success rate > 99% |
+| 45-47 | Order Management | `OrderManagementSystem`, smart routing | Order execution no anomalies |
+| 48-50 | Stage 1 Live (10%) | `CapitalTransitionManager`, 4-week run | Cumulative loss < 5% |
+| 51-52 | Stage 2 Live (25%) | Capital ramp-up | No rollback triggers |
+
+### 15.4 Phase 7: DevOps Automation (Week 53+)
+
+| Week | Component | Deliverables | Gate Criteria |
+|------|-----------|--------------|---------------|
+| 53-56 | CI/CD Pipeline | GitHub Actions workflow, Docker deployment | Deploy time < 10 minutes |
+| 57-60 | Monitoring | `AutomatedMonitoring`, self-healing rules | MTTR < 5 minutes |
+| 61-64 | Backup System | `AutomatedBackupSystem`, S3 retention | Restore test passed |
+| 65+ | Full Automation | 50%-100% capital, < 1 manual intervention/week | Availability > 99.9% |
 
 ---
 
@@ -1498,5 +2591,6 @@ This technical design provides a robust foundation for building a production-rea
 - **Data quality focus**: Multi-source validation prevents garbage-in-garbage-out
 - **Extensible design**: Plugin architecture supports future enhancements
 - **Production readiness**: Containerization, monitoring, and alerting from day one
+- **Complete lifecycle**: Full coverage from paper trading (Phase 5) through live trading (Phase 6) to automated operations (Phase 7)
 
-The system balances sophistication with practicality, ensuring it can evolve from research prototype to production trading platform.
+The system balances sophistication with practicality, ensuring it can evolve from research prototype to production trading platform with confidence.
