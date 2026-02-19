@@ -306,7 +306,7 @@ class TradingSystem:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="Shark Quant Trader")
-    parser.add_argument("--mode", choices=["live", "backtest", "stress"], 
+    parser.add_argument("--mode", choices=["live", "paper", "backtest", "stress"], 
                        default="live", help="Execution mode")
     parser.add_argument("--start-date", help="Backtest start date (YYYY-MM-DD)")
     parser.add_argument("--end-date", help="Backtest end date (YYYY-MM-DD)")
@@ -327,6 +327,28 @@ def main():
     
     elif args.mode == "stress":
         system.run_stress_test()
+    
+    elif args.mode == "paper":
+        logger.info("Starting paper trading mode")
+        logger.info(f"Trading interval: {args.interval} seconds")
+        logger.info("Paper trading uses simulated execution with slippage/delay")
+        
+        cycle_count = 0
+        while True:
+            cycle_count += 1
+            logger.info(f"=== Paper Trading Cycle {cycle_count} ===")
+            
+            # Run trading cycle (generates signals)
+            system.run_trading_cycle()
+            
+            # Log paper trading status
+            nav = system.portfolio.nav
+            peak = system.portfolio.peak_nav
+            dd = (peak - nav) / peak if peak > 0 else 0
+            logger.info(f"NAV: ${nav:,.2f} | Peak: ${peak:,.2f} | DD: {dd:.2%}")
+            
+            logger.info(f"Waiting {args.interval} seconds until next cycle")
+            time.sleep(args.interval)
     
     else:  # live mode
         logger.info("Starting live trading mode")
