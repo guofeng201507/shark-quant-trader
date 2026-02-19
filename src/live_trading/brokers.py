@@ -12,6 +12,10 @@ import asyncio
 import ssl
 import certifi
 import aiohttp
+import hashlib
+import hmac
+import time
+import urllib.parse
 
 from .models import (
     LiveOrder,
@@ -309,6 +313,18 @@ class BinanceAdapter(BrokerAdapter):
     def broker_name(self) -> str:
         return "binance"
     
+    def _generate_signature(self, query_string: str) -> str:
+        """Generate HMAC SHA256 signature for Binance API"""
+        return hmac.new(
+            self.secret_key.encode('utf-8'),
+            query_string.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+    
+    def _get_timestamp(self) -> int:
+        """Get current timestamp in milliseconds"""
+        return int(time.time() * 1000)
+    
     async def connect(self) -> bool:
         """Connect to Binance API"""
         if self._connected:
@@ -320,11 +336,19 @@ class BinanceAdapter(BrokerAdapter):
             return True
 
         try:
-            self.session = aiohttp.ClientSession()
-            # Test connection with ping
-            async with self.session.get(f"{self.base_url}/api/v3/ping"):
-                self._connected = True
-                return True
+            # Create SSL context with certifi certificates
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            headers = {"X-MBX-APIKEY": self.api_key}
+            self.session = aiohttp.ClientSession(headers=headers, connector=connector)
+            # Test connection with ping (public endpoint)
+            async with self.session.get(f"{self.base_url}/api/v3/ping") as resp:
+                if resp.status == 200:
+                    self._connected = True
+                    return True
+                else:
+                    print(f"Binance ping failed: {resp.status}")
+                    return False
         except Exception as e:
             print(f"Binance connection failed: {e}")
             return False
@@ -354,40 +378,68 @@ class BinanceAdapter(BrokerAdapter):
             )
 
         try:
-            # Get spot account info
-            async with self.session.get(f"{self.base_url}/api/v3/account") as resp:
+            # Build signed request
+            timestamp = self._get_timestamp()
+            query_string = f"timestamp={timestamp}"
+            signature = self._generate_signature(query_string)
+            
+            url = f"{self.base_url}/api/v3/account?{query_string}&signature={signature}"
+            
+            async with self.session.get(url) as resp:
+                if resp.status != 200:
+                    error_text = await resp.text()
+                    print(f"Binance API error: {resp.status} - {error_text}")
+                    raise Exception(f"Binance API error: {resp.status}")
                 data = await resp.json()
             
             positions = {}
+            total_value = 0.0
+            usdt_balance = 0.0
+            
             for balance in data.get("balances", []):
+                asset = balance.get("asset")
                 free = float(balance.get("free", 0))
                 locked = float(balance.get("locked", 0))
-                if free + locked > 0:
-                    symbol = balance.get("asset")
-                    # Get current price
-                    try:
-                        async with self.session.get(
-                            f"{self.base_url}/api/v3/ticker/price",
-                            params={"symbol": f"{symbol}USDT"}
-                        ) as price_resp:
-                            price_data = await price_resp.json()
-                            current_price = float(price_data.get("price", 0))
-                    except:
-                        current_price = 0
-                    
-                    positions[symbol] = Position(
-                        symbol=symbol,
-                        quantity=free + locked,
-                        avg_cost=0,
-                        current_price=current_price,
-                        market_value=(free + locked) * current_price
-                    )
+                total = free + locked
+                
+                if total > 0:
+                    if asset == "USDT":
+                        usdt_balance = total
+                        total_value += total
+                    elif asset == "BTC":
+                        # Get BTC price
+                        try:
+                            async with self.session.get(
+                                f"{self.base_url}/api/v3/ticker/price",
+                                params={"symbol": "BTCUSDT"}
+                            ) as price_resp:
+                                price_data = await price_resp.json()
+                                current_price = float(price_data.get("price", 0))
+                                market_value = total * current_price
+                                total_value += market_value
+                                positions[asset] = Position(
+                                    symbol=asset,
+                                    quantity=total,
+                                    avg_cost=0,
+                                    current_price=current_price,
+                                    market_value=market_value
+                                )
+                        except:
+                            pass
+                    elif total > 0.0001:  # Skip dust
+                        positions[asset] = Position(
+                            symbol=asset,
+                            quantity=total,
+                            avg_cost=0,
+                            current_price=0,
+                            market_value=0
+                        )
             
             return AccountInfo(
                 account_id=data.get("accountType", "SPOT"),
-                cash=float(data.get("buyerCommission", 0)),
-                buying_power=100000.0,  # Calculate from balances
-                portfolio_value=sum(p.market_value for p in positions.values()),
+                cash=usdt_balance,
+                buying_power=usdt_balance,
+                portfolio_value=total_value if total_value > 0 else usdt_balance,
                 positions=positions,
                 timestamp=datetime.now()
             )
@@ -409,39 +461,45 @@ class BinanceAdapter(BrokerAdapter):
                 timestamp=datetime.now()
             )
 
-        # Map order side
-        side = order.side.upper()
+        # Build signed request
+        timestamp = self._get_timestamp()
         
-        # Build endpoint
-        if order.order_type == "MARKET":
-            endpoint = "/api/v3/order"
-            params = {
-                "symbol": order.symbol,
-                "side": side,
-                "type": "MARKET",
-                "quantity": order.quantity
-            }
-        else:
-            endpoint = "/api/v3/order"
-            params = {
-                "symbol": order.symbol,
-                "side": side,
-                "type": "LIMIT",
-                "quantity": order.quantity,
-                "price": order.limit_price,
-                "timeInForce": "GTC"
-            }
+        # Map order side
+        side = order.side.upper() if isinstance(order.side, str) else order.side.value.upper()
+        order_type = order.order_type.upper() if isinstance(order.order_type, str) else order.order_type.value.upper()
+        
+        # Build params
+        params = {
+            "symbol": order.symbol.replace("/", "").replace("-", ""),  # Convert BTC/USD to BTCUSD
+            "side": side,
+            "type": order_type,
+            "quantity": str(order.quantity),
+            "timestamp": timestamp
+        }
+        
+        if order_type == "LIMIT":
+            params["price"] = str(order.limit_price)
+            params["timeInForce"] = "GTC"
+        
+        # Generate signature
+        query_string = urllib.parse.urlencode(params)
+        signature = self._generate_signature(query_string)
         
         try:
-            async with self.session.post(
-                f"{self.base_url}{endpoint}",
-                params=params
-            ) as resp:
+            url = f"{self.base_url}/api/v3/order?{query_string}&signature={signature}"
+            async with self.session.post(url) as resp:
                 data = await resp.json()
+                if resp.status != 200:
+                    return OrderResponse(
+                        broker_order_id="",
+                        status="REJECTED",
+                        message=data.get("msg", str(data)),
+                        timestamp=datetime.now()
+                    )
                 return OrderResponse(
-                    broker_order_id=data.get("orderId", ""),
+                    broker_order_id=str(data.get("orderId", "")),
                     status=data.get("status", "FILLED"),
-                    message=data.get("msg", ""),
+                    message=data.get("msg", "Order submitted"),
                     timestamp=datetime.now()
                 )
         except Exception as e:

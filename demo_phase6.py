@@ -105,17 +105,38 @@ async def test_broker_adapters():
     print(f"    Buying Power: ${account.buying_power}")
     await alpaca.disconnect()
 
-    # Test 2: Binance Adapter (Demo Mode)
+    # Test 2: Binance Adapter (Demo or Live Mode)
     print("\n[2] Testing BinanceAdapter...")
-    binance = BinanceAdapter(
-        api_key="demo_key",
-        secret_key="demo_secret",
-        testnet=True,
-        demo_mode=True
-    )
+    binance_key = os.getenv("BINANCE_API_KEY", "")
+    binance_secret = os.getenv("BINANCE_SECRET_KEY", "")
+    binance_testnet = os.getenv("BINANCE_TESTNET", "true").lower() == "true"
+    
+    if binance_key and binance_secret and USE_LIVE_BROKER:
+        # Use real API
+        binance = BinanceAdapter(
+            api_key=binance_key,
+            secret_key=binance_secret,
+            testnet=binance_testnet,
+            demo_mode=False
+        )
+        print(f"    Using Live API (Testnet: {binance_testnet})")
+    else:
+        # Use demo mode
+        binance = BinanceAdapter(
+            api_key="demo_key",
+            secret_key="demo_secret",
+            testnet=True,
+            demo_mode=True
+        )
+        print(f"    Using Demo Mode")
+    
     await binance.connect()
     account = await binance.get_account_info()
-    print(f"    Binance Account: ${account.cash} (Demo Mode)")
+    mode_str = "Demo Mode" if binance.demo_mode else "Live"
+    print(f"    Binance Account: ${account.cash} ({mode_str})")
+    if not binance.demo_mode:
+        print(f"    Portfolio Value: ${account.portfolio_value}")
+        print(f"    Buying Power: ${account.buying_power}")
     await binance.disconnect()
 
     # Test 3: IBKR Adapter (Demo Mode)
@@ -387,7 +408,11 @@ async def main():
         print("  - FR-6.3 Live Monitoring System: ✓")
 
         if USE_LIVE_BROKER:
-            print("\n  [LIVE MODE] Connected to real Alpaca Paper Trading API")
+            print("\n  [LIVE MODE] Connected to real broker APIs:")
+            if os.getenv("ALPACA_API_KEY"):
+                print("    - Alpaca Paper Trading API")
+            if os.getenv("BINANCE_API_KEY"):
+                print("    - Binance API")
 
     except Exception as e:
         print(f"\n[✗] Test failed with error: {e}")
