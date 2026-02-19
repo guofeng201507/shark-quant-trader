@@ -38,6 +38,9 @@ dependencies = [
     "python-dotenv (>=1.2.1,<2.0.0)",
     "optuna>=3.3.0",
     "shap>=0.42.0",
+    "aiohttp>=3.9.0",
+    "psutil>=5.9.0",
+    "scipy>=1.11.0",
 ]
 
 [build-system]
