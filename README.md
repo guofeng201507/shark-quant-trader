@@ -187,17 +187,50 @@ Required API Keys:
 ### 3. Run Modes
 
 #### Paper Trading (Recommended for Cloud)
+
+**Local (foreground - for testing):**
 ```bash
-# Daily interval (86400 seconds = 24 hours)
+# Short interval for testing (60 seconds)
+NUMBA_CACHE_DIR=/tmp/numba_cache poetry run python main.py --mode paper --interval 60
+
+# Daily interval (production)
+NUMBA_CACHE_DIR=/tmp/numba_cache poetry run python main.py --mode paper --interval 86400
+```
+
+**Background Service (24/7 on server):**
+```bash
+# Start paper trading in background
+mkdir -p logs
 NUMBA_CACHE_DIR=/tmp/numba_cache nohup poetry run python main.py --mode paper --interval 86400 > logs/paper_trading.log 2>&1 &
 
-# View logs
+# Check if running
+ps aux | grep main.py
+
+# View live logs
 tail -f logs/paper_trading.log
+
+# Stop the process
+pkill -f "main.py --mode paper"
 ```
 
 #### Live Trading
+
+**Local (foreground):**
 ```bash
+# Daily trading cycle
 poetry run python main.py --mode live --interval 86400
+
+# Hourly trading cycle
+poetry run python main.py --mode live --interval 3600
+```
+
+**Background Service:**
+```bash
+# Start live trading in background
+NUMBA_CACHE_DIR=/tmp/numba_cache nohup poetry run python main.py --mode live --interval 86400 > logs/live_trading.log 2>&1 &
+
+# Monitor logs
+tail -f logs/live_trading.log
 ```
 
 #### Backtesting
@@ -210,6 +243,18 @@ poetry run python main.py --mode backtest \
 #### Stress Testing
 ```bash
 poetry run python main.py --mode stress
+```
+
+#### Phase Demos
+```bash
+# Validate individual phases
+poetry run python demo_phase1.py   # Phase 1: MVP validation
+poetry run python demo_phase2.py   # Phase 2: Enhanced strategies
+poetry run python demo_phase3.py   # Phase 3: ML enhancement
+poetry run python demo_phase4.py   # Phase 4: NLP sentiment
+poetry run python demo_phase5.py   # Phase 5: Paper trading
+poetry run python demo_phase6.py   # Phase 6: Live trading (demo mode)
+poetry run python demo_phase6.py --live  # Phase 6: Live mode with real APIs
 ```
 
 ---
