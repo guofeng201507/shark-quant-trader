@@ -179,11 +179,21 @@ vim .env
 ```
 
 Required API Keys:
-- `POLYGON_API_KEY`: Polygon.io API key (primary data source)
-- Binance: Uses public Futures API - no key required
-- Alert channels (optional): SMTP, Slack, Telegram, Discord webhooks
+- `POLYGON_API_KEY`: Polygon.io API key (US equity/ETF data - optional, yfinance fallback available)
+- `ALPACA_API_KEY` + `ALPACA_SECRET_KEY`: Alpaca paper/live trading (US ETFs)
+- `BINANCE_API_KEY` + `BINANCE_SECRET_KEY`: Binance API (crypto trading, set `BINANCE_TESTNET=false` for production)
+- Alert channels (optional): `ALERT_TELEGRAM_TOKEN` + `ALERT_TELEGRAM_CHAT_ID` for Telegram alerts
 
 ### 3. Run Modes
+
+#### Paper Trading (Recommended for Cloud)
+```bash
+# Daily interval (86400 seconds = 24 hours)
+NUMBA_CACHE_DIR=/tmp/numba_cache nohup poetry run python main.py --mode paper --interval 86400 > logs/paper_trading.log 2>&1 &
+
+# View logs
+tail -f logs/paper_trading.log
+```
 
 #### Live Trading
 ```bash
