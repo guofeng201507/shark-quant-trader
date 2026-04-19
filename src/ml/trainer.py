@@ -268,8 +268,8 @@ class MLTrainer:
                     else:
                         auc = roc_auc_score(y_val, y_pred_proba, multi_class='ovr', average='macro')
                     scores['auc'].append(auc)
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug(f"AUC calculation failed for fold: {e}")
                 
                 # Accuracy
                 acc = accuracy_score(y_val, y_pred)

@@ -25,6 +25,8 @@ from .models import (
     OrderStatus
 )
 
+from ..utils.logger import logger
+
 
 class BrokerAdapter(ABC):
     """Abstract broker adapter for multi-broker support.
@@ -126,6 +128,8 @@ class AlpacaAdapter(BrokerAdapter):
                 "APCA-API-KEY-ID": self.api_key,
                 "APCA-API-SECRET-KEY": self.secret_key
             }
+            if not self.api_key or not self.secret_key:
+                logger.warning("Alpaca API keys are empty - API calls will fail")
             # Create SSL context with certifi certificates for macOS compatibility
             ssl_context = ssl.create_default_context(cafile=certifi.where())
             connector = aiohttp.TCPConnector(ssl=ssl_context)
@@ -211,8 +215,8 @@ class AlpacaAdapter(BrokerAdapter):
         payload = {
             "symbol": order.symbol,
             "qty": str(order.quantity),
-            "side": order.side.lower(),
-            "type": order.order_type.lower(),
+            "side": str(order.side).lower(),
+            "type": str(order.order_type).lower(),
             "time_in_force": "day"
         }
         if order.limit_price:
@@ -339,6 +343,8 @@ class BinanceAdapter(BrokerAdapter):
             # Create SSL context with certifi certificates
             ssl_context = ssl.create_default_context(cafile=certifi.where())
             connector = aiohttp.TCPConnector(ssl=ssl_context)
+            if not self.api_key or not self.secret_key:
+                logger.warning("Binance API keys are empty - signed API calls will fail")
             headers = {"X-MBX-APIKEY": self.api_key}
             self.session = aiohttp.ClientSession(headers=headers, connector=connector)
             # Test connection with ping (public endpoint)
@@ -424,8 +430,8 @@ class BinanceAdapter(BrokerAdapter):
                                     current_price=current_price,
                                     market_value=market_value
                                 )
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.warning(f"BTC price fetch failed: {e}")
                     elif total > 0.0001:  # Skip dust
                         positions[asset] = Position(
                             symbol=asset,
@@ -464,9 +470,9 @@ class BinanceAdapter(BrokerAdapter):
         # Build signed request
         timestamp = self._get_timestamp()
         
-        # Map order side
-        side = order.side.upper() if isinstance(order.side, str) else order.side.value.upper()
-        order_type = order.order_type.upper() if isinstance(order.order_type, str) else order.order_type.value.upper()
+        # Map order side - handle both str and enum
+        side = str(order.side).upper()
+        order_type = str(order.order_type).upper()
         
         # Build params
         params = {

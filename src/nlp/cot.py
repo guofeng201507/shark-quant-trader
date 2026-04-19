@@ -165,7 +165,8 @@ class COTSentimentAnalyzer:
                                 'noncommercial_long': self._safe_float(parts, 5),
                                 'noncommercial_short': self._safe_float(parts, 6),
                             })
-                        except:
+                        except (ValueError, IndexError) as e:
+                            logger.debug(f"Skipping COT line parse: {e}")
                             continue
             
             if data:
@@ -185,7 +186,7 @@ class COTSentimentAnalyzer:
             if idx < len(parts):
                 val = parts[idx].replace(',', '').strip()
                 return float(val) if val else 0.0
-        except:
+        except (ValueError, IndexError):
             pass
         return 0.0
     

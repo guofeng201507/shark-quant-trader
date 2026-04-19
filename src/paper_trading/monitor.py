@@ -18,6 +18,8 @@ from .models import (
     KSDriftPoint
 )
 
+from ..utils.logger import logger
+
 
 @dataclass
 class MonitorConfig:
@@ -348,8 +350,8 @@ class RealTimePerformanceMonitor:
                     elif ks_stat > self.config.ks_warning_threshold:
                         self._add_alert("WARNING", f"KS drift for {col}: {ks_stat:.4f} > {self.config.ks_warning_threshold}")
                         
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"KS drift calculation failed for {col}: {e}")
         
         return ks_stats
     

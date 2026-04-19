@@ -1,7 +1,7 @@
 """Live Trading data models based on Tech Design v1.2 Section 4.12"""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Union
 from datetime import datetime, date
 from enum import Enum
 import numpy as np
@@ -37,9 +37,9 @@ class LiveOrder:
     """Live trading order"""
     order_id: str
     symbol: str
-    side: str  # BUY/SELL
+    side: Union[str, 'OrderSide']  # BUY/SELL
     quantity: float
-    order_type: str  # MARKET/LIMIT/STOP/STOP_LIMIT
+    order_type: Union[str, 'OrderType']  # MARKET/LIMIT/STOP/STOP_LIMIT
     limit_price: Optional[float] = None
     stop_price: Optional[float] = None
     status: str = "PENDING"

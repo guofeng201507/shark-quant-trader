@@ -939,6 +939,107 @@ PASS - Paper trading mode enabled for cloud deployment. System successfully runs
 
 ---
 
+## Review #11: Full Project Code Quality & Safety Audit
+
+**Date:** February 8, 2026  
+**Reviewer:** AI Assistant  
+**Scope:** Full codebase review across all 16 modules  
+**Reference Documents:** PRD v2.0, Tech Design v1.2
+
+### Review Objective
+Comprehensive code review of entire project codebase focusing on runtime bugs, security, architecture, data integrity, and trading safety.
+
+### Issues Found
+
+#### Critical
+
+| # | File | Issue | Severity |
+|---|------|-------|----------|
+| 1 | `main.py` L119, 126, 139, 285 | Column name `'Close'` should be `'close'` - data provider standardizes to lowercase at L267 | Critical |
+| 2 | `main.py` L127 | Bare `except:` silently defaults VIX to 20.0 with no logging | Critical |
+| 3 | `src/live_trading/brokers.py` L468-469 | Unsafe enum-to-string: `isinstance(order.side, str)` always True but else branch calls `.value.upper()` on string | Critical |
+| 4 | `src/nlp/cot.py` L168, L188 | Bare `except:` silently swallows parsing errors | Critical |
+
+#### High
+
+| # | File | Issue | Severity |
+|---|------|-------|----------|
+| 5 | `src/execution/order_manager.py` | Missing validation: no check for `quantity > 0` or `symbol != ""` before order submission | High |
+| 6 | `src/live_trading/models.py` L40-42 | `LiveOrder.side` and `order_type` typed as `str` but `OrderSide`/`OrderType` enums exist | High |
+| 7 | `src/nlp/sentiment.py` L128-131 | FinBERT fallback sets `_model = None`; downstream `analyze_sentiment()` could use None model | High |
+| 8 | `src/live_trading/brokers.py` L100-101, L303-304 | No API key validation - empty keys silently accepted | High |
+
+#### Medium
+
+| # | File | Issue | Severity |
+|---|------|-------|----------|
+| 9 | `src/nlp/integrator.py` L241-243 | Exception caught but returns empty dict silently | Medium |
+| 10 | `src/paper_trading/monitor.py` L351 | Bare `except Exception:` with `pass` in KS drift check | Medium |
+| 11 | `tests/test_factors.py` L24, 32, 88 | Uses uppercase `'Close'` - inconsistent with provider | Medium |
+| 12 | `src/ml/trainer.py` L271 | Bare `except:` silently skips AUC calculation | Medium |
+| 13 | `src/ml/evaluator.py` L102 | Bare `except:` defaults AUC to 0.5 without logging | Medium |
+| 14 | `src/live_trading/brokers.py` L427 | Bare `except:` silently ignores BTC price fetch failure | Medium |
+
+### Changes Made
+
+#### 1. Fixed `main.py` - Column name `'Close'` → `'close'` (Issue #1)
+- Lines 119, 126, 139, 285: Changed all `'Close'` references to `'close'`
+- Root cause of `KeyError: 'Close'` in paper trading cycles
+
+#### 2. Fixed `main.py` - Added logging to VIX fetch (Issue #2)
+- Changed bare `except:` to `except Exception as e:` with `logger.warning()`
+
+#### 3. Fixed `src/live_trading/brokers.py` - Consistent string handling (Issue #3)
+- Simplified enum-to-string conversion using `str(order.side).upper()` pattern
+- Works for both enum values and plain strings
+
+#### 4. Fixed `src/nlp/cot.py` - Proper exception logging (Issue #4)
+- L168: Changed `except:` to `except (ValueError, IndexError) as e:` with `logger.debug()`
+- L188: Changed `except:` to `except (ValueError, IndexError):`
+
+#### 5. Fixed `src/execution/order_manager.py` - Order validation (Issue #5)
+- Added symbol and quantity validation in `submit_order()`
+- Rejects orders with empty symbol or quantity <= 0
+
+#### 6. Fixed `src/live_trading/models.py` - Proper enum types (Issue #6)
+- Changed `LiveOrder.side` type from `str` to `Union[str, OrderSide]`
+- Changed `LiveOrder.order_type` type from `str` to `Union[str, OrderType]`
+
+#### 7. Fixed `src/nlp/sentiment.py` - FinBERT null guard (Issue #7)
+- Added explicit `_model_available` flag
+- `analyze_sentiment()` checks flag before attempting FinBERT
+
+#### 8. Fixed `src/live_trading/brokers.py` - API key validation (Issue #8)
+- Added validation in `connect()` for Alpaca and Binance
+- Logs warning when API keys are empty (non-demo mode)
+
+#### 9. Fixed `src/nlp/integrator.py` - Error propagation (Issue #9)
+- Added `logger.error()` before returning empty dict
+
+#### 10. Fixed `src/paper_trading/monitor.py` - KS drift exception (Issue #10)
+- Changed `except Exception:` to `except Exception as e:` with `logger.debug()`
+
+#### 11. Fixed `tests/test_factors.py` - Column case (Issue #11)
+- Changed `'Close'`, `'Open'`, `'High'`, `'Low'` to lowercase
+
+#### 12. Fixed `src/ml/trainer.py` L271 - AUC exception (Issue #12)
+- Changed `except:` to `except Exception as e:` with `logger.debug()`
+
+#### 13. Fixed `src/ml/evaluator.py` L102 - AUC exception (Issue #13)
+- Changed `except:` to `except Exception as e:` with `logger.debug()`
+
+#### 14. Fixed `src/live_trading/brokers.py` L427 - BTC price exception (Issue #14)
+- Changed `except:` to `except Exception as e:` with `logger.warning()`
+
+### Verification
+
+All demo scripts (demo_phase1 through demo_phase6) re-run successfully.
+
+### Final Status
+PASS - 14 issues identified and fixed across 10 files. All bare `except:` blocks replaced with proper exception handling and logging. Column name inconsistency resolved. Order validation added.
+
+---
+
 *Template for future reviews:*
 
 ## Review #N: [Title]

@@ -116,15 +116,16 @@ class TradingSystem:
                 return False
             
             # Get current prices
-            current_prices = {s: price_data[s].iloc[-1]['Close'] 
+            current_prices = {s: price_data[s].iloc[-1]['close'] 
                             for s in symbols if not price_data[s].empty}
             
             # Get VIX (if available)
             vix_symbol = "^VIX"
             try:
                 vix_data = self.data_provider.fetch([vix_symbol], start_date, end_date)
-                vix = vix_data[vix_symbol].iloc[-1]['Close'] if vix_symbol in vix_data else 20.0
-            except:
+                vix = vix_data[vix_symbol].iloc[-1]['close'] if vix_symbol in vix_data else 20.0
+            except Exception as e:
+                logger.warning(f"VIX fetch failed: {e}, using default VIX=20.0")
                 vix = 20.0  # Default VIX
             
             logger.info(f"Current VIX: {vix:.2f}")
@@ -136,7 +137,7 @@ class TradingSystem:
             # 3. Check correlation
             returns = {}
             for symbol, df in price_data.items():
-                returns[symbol] = df['Close'].pct_change()
+                returns[symbol] = df['close'].pct_change()
             
             returns_df = pd.DataFrame(returns).dropna()
             corr_matrix = self.correlation_monitor.get_correlation_matrix(returns_df)
@@ -282,7 +283,7 @@ class TradingSystem:
         start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
         
         price_data = self.data_provider.fetch(symbols, start_date, end_date)
-        current_prices = {s: price_data[s].iloc[-1]['Close'] 
+        current_prices = {s: price_data[s].iloc[-1]['close'] 
                          for s in symbols if not price_data[s].empty}
         
         # Run stress tests

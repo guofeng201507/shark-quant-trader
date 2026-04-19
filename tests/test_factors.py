@@ -18,19 +18,19 @@ def sample_price_data():
     gld_prices = 50 * np.exp(np.cumsum(np.random.randn(200) * 0.008))
     
     spy_df = pd.DataFrame({
-        'Open': spy_prices * 0.99,
-        'High': spy_prices * 1.01,
-        'Low': spy_prices * 0.98,
-        'Close': spy_prices,
-        'Volume': np.random.randint(1000000, 5000000, 200)
+        'open': spy_prices * 0.99,
+        'high': spy_prices * 1.01,
+        'low': spy_prices * 0.98,
+        'close': spy_prices,
+        'volume': np.random.randint(1000000, 5000000, 200)
     }, index=dates)
-    
+        
     gld_df = pd.DataFrame({
-        'Open': gld_prices * 0.99,
-        'High': gld_prices * 1.01,
-        'Low': gld_prices * 0.98,
-        'Close': gld_prices,
-        'Volume': np.random.randint(500000, 2000000, 200)
+        'open': gld_prices * 0.99,
+        'high': gld_prices * 1.01,
+        'low': gld_prices * 0.98,
+        'close': gld_prices,
+        'volume': np.random.randint(500000, 2000000, 200)
     }, index=dates)
     
     return {
@@ -85,7 +85,7 @@ def test_calculate_moving_averages(sample_price_data):
     assert 'SMA_200' in factors['SPY'].columns
     
     # SMA should be close to price
-    prices = sample_price_data['SPY']['Close']
+    prices = sample_price_data['SPY']['close']
     sma_20 = factors['SPY']['SMA_20']
     
     # Check last value is reasonable

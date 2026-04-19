@@ -99,7 +99,8 @@ class ModelEvaluator:
                 # Convert to binary (0/1): positive direction vs rest
                 y_true_binary = (y_true == y_true.max()).astype(int)
                 metrics['auc'] = roc_auc_score(y_true_binary, y_pred)
-            except:
+            except Exception as e:
+                logger.debug(f"AUC calculation failed: {e}")
                 metrics['auc'] = 0.5
         
         # Portfolio metrics (if returns provided)

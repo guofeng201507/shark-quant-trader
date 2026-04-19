@@ -87,6 +87,7 @@ class NewsSentimentAnalyzer:
         self._init_cache()
         self._model = None
         self._tokenizer = None
+        self._model_available = False
         
         logger.info(f"NewsSentimentAnalyzer initialized: model={self.config.model_name}")
     
@@ -123,12 +124,14 @@ class NewsSentimentAnalyzer:
                 'model': self._model,
                 'tokenizer': self._tokenizer
             }
+            self._model_available = True
             logger.info("FinBERT model loaded successfully")
             
         except Exception as e:
             logger.warning(f"Failed to load FinBERT: {e}. Using fallback sentiment.")
             self._model = None
             self._tokenizer = None
+            self._model_available = False
     
     def fetch_news(self, symbols: List[str], date: str) -> List[Dict]:
         """
@@ -305,7 +308,7 @@ class NewsSentimentAnalyzer:
         
         results = []
         
-        if self._model is not None:
+        if self._model is not None and self._model_available:
             # Use FinBERT
             try:
                 from transformers import pipeline

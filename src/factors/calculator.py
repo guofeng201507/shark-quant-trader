@@ -41,6 +41,9 @@ class FactorCalculator:
         
         for symbol, df in prices.items():
             try:
+                if df.empty:
+                    factors[symbol] = pd.DataFrame()
+                    continue
                 factor_df = self._calculate_single_symbol(df, symbol)
                 factors[symbol] = factor_df
                 logger.debug(f"Calculated {len(factor_df.columns)} factors for {symbol}")

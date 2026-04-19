@@ -94,6 +94,14 @@ class OrderManager:
         Returns:
             True if submission successful
         """
+        # Validate order parameters
+        if not order.symbol or not order.symbol.strip():
+            logger.error("Order rejected: empty symbol")
+            return False
+        if order.quantity <= 0:
+            logger.error(f"Order rejected: invalid quantity {order.quantity} for {order.symbol}")
+            return False
+        
         # TODO: Integrate with actual broker API (Alpaca, IBKR, etc.)
         # For Phase 1, this is a simulation
         

@@ -239,7 +239,7 @@ class SentimentFactorIntegrator:
             return result
             
         except Exception as e:
-            logger.warning(f"SHAP validation failed: {e}")
+            logger.error(f"SHAP validation failed: {e}")
             return {}
     
     def get_features_to_remove(self,
