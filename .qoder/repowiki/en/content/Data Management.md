@@ -17,7 +17,7 @@
 ## Update Summary
 **Changes Made**
 - Updated DataProvider implementation with complete multi-source integration
-- Enhanced Binance public API integration with configurable base URLs via BINANCE_FAPI_BASE environment variable
+- Enhanced Binance public API integration with configurable endpoints via BINANCE_FAPI_BASE environment variable
 - Migrated from python-binance client to direct HTTP requests using requests library for robust error handling
 - Added funding rate fetching capability for Binance Futures
 - Improved data validation and caching mechanisms
@@ -474,8 +474,8 @@ The data management system implements a robust, tiered acquisition strategy with
 **Section sources**
 - [PRD_Intelligent_Trading_System_v2.md](file://PRD_Intelligent_Trading_System_v2.md#L1311-L1323)
 - [Tech_Design_Document.md](file://Tech_Design_Document.md#L152-L159)
-- [.env](file://.env#L1-L42)
-- [.env.example](file://.env.example#L1-L75)
+- [.env](file://.env#L1-L54)
+- [.env.example](file://.env.example#L1-L82)
 - [src/data/provider.py](file://src/data/provider.py#L69-L71)
 
 ### Data Flow Example: From Acquisition to Strategy Consumption

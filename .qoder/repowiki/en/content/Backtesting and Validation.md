@@ -10,37 +10,40 @@
 - [src/models/domain.py](file://src/models/domain.py)
 - [src/risk/manager.py](file://src/risk/manager.py)
 - [src/portfolio/manager.py](file://src/portfolio/manager.py)
+- [src/state/manager.py](file://src/state/manager.py)
+- [src/alerts/manager.py](file://src/alerts/manager.py)
+- [src/ml/lifecycle.py](file://src/ml/lifecycle.py)
 - [config/strategy.yaml](file://config/strategy.yaml)
 - [main.py](file://main.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Updated performance metrics section to reflect seven complete metrics (total return, annualized return, Sharpe ratio, maximum drawdown, Calmar ratio, win rate, trade count)
-- Added comprehensive stress testing scenarios with five historical crisis scenarios (COVID-2020 crash, 2008 financial crisis, dot-com bubble, flash crash, crypto winter)
-- Integrated Monte Carlo simulations with VaR and CVaR calculations
-- Enhanced risk management integration with 4-level hierarchical risk control
-- Updated validation criteria with comprehensive acceptance standards
-- **Critical Bug Fix**: Updated case sensitivity handling in data column references to ensure compatibility with standardized data formats across different exchanges and data sources
+- **Added New Section 8: Paper Trading Gates** - Comprehensive validation stages for Phases 5-7 including pre-paper trading requirements, paper trading criteria, and live trading progression
+- **Enhanced Validation Workflow** - Integrated state persistence, alert management, and model lifecycle components into the validation framework
+- **Updated Architecture Overview** - Added paper trading and live trading phases to the system architecture
+- **Integrated Operations Automation** - Added deployment architecture, monitoring, and CI/CD pipeline requirements
+- **Enhanced Risk Management Integration** - Expanded risk controls to cover paper trading and live trading phases
 
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
-5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
+5. [Paper Trading Gates](#paper-trading-gates)
+6. [Detailed Component Analysis](#detailed-component-analysis)
+7. [Dependency Analysis](#dependency-analysis)
+8. [Performance Considerations](#performance-considerations)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
 
 ## Introduction
 
 The Backtesting and Validation Framework is a comprehensive system built on the Backtrader platform designed to validate trading strategies through historical testing, stress testing, and performance metrics analysis. This framework ensures that trading strategies meet rigorous validation standards before deployment, incorporating multiple stress scenarios and comprehensive risk management controls.
 
-The framework addresses critical aspects of quantitative trading validation including historical strategy validation, stress testing procedures, performance metrics calculation, and risk management integration. It provides a robust foundation for strategy development with built-in safeguards against overfitting and data snooping bias.
-
 **Updated** The framework now implements complete historical simulation with seven comprehensive performance metrics and advanced stress testing with five historical crisis scenarios, plus Monte Carlo simulations with Value at Risk (VaR) and Conditional Value at Risk (CVaR) calculations. **Critical Enhancement**: Fixed case sensitivity issues in data column references to ensure compatibility with standardized data formats across different exchanges and data sources.
+
+**New Addition**: Paper Trading Gates framework provides structured validation for Phases 5-7, including pre-paper trading requirements, paper trading criteria, and live trading progression with operational automation requirements.
 
 ## Project Structure
 
@@ -55,6 +58,11 @@ MET[Metrics Calculator]
 VAL[Validation Engine]
 MC[Monte Carlo Simulator]
 end
+subgraph "Paper Trading Gates"
+PG[Pre-Paper Trading Requirements]
+PT[Paper Trading Criteria]
+LT[Live Trading Progression]
+end
 subgraph "Strategy Components"
 STRAT[Strategy Implementation]
 SIG[Signal Generator]
@@ -65,6 +73,12 @@ subgraph "Data Layer"
 DP[Data Provider]
 FC[Factor Calculator]
 VALD[Data Validator]
+end
+subgraph "Operations & Automation"
+SM[State Manager]
+AM[Alert Manager]
+LM[Model Lifecycle]
+DA[Deployment Architecture]
 end
 subgraph "Validation Scenarios"
 SC1[COVID-2020 Crash]
@@ -83,6 +97,9 @@ ST --> MET
 ST --> MC
 MET --> VAL
 VAL --> RM
+VAL --> PG
+PG --> PT
+PT --> LT
 SC1 --> ST
 SC2 --> ST
 SC3 --> ST
@@ -92,7 +109,7 @@ SC5 --> ST
 
 **Diagram sources**
 - [Tech_Design_Document.md](file://Tech_Design_Document.md#L890-L931)
-- [PRD_Intelligent_Trading_System_v2.md](file://PRD_Intelligent_Trading_System_v2.md#L334-L362)
+- [Tech_Design_Document.md](file://Tech_Design_Document.md#L1115-L1169)
 - [src/stress/tester.py](file://src/stress/tester.py#L14-L49)
 
 The framework follows a layered architecture where each component has specific responsibilities:
@@ -103,10 +120,14 @@ The framework follows a layered architecture where each component has specific r
 - **Metrics Calculator**: Computes seven complete performance statistics with risk-adjusted measures
 - **Validation Engine**: Ensures strategies meet minimum acceptance criteria with comprehensive standards
 - **Risk Manager**: Integrates 4-level hierarchical risk controls throughout the validation process
+- **Paper Trading Gates**: Structured validation framework for transitioning from backtesting to live trading
+- **State Manager**: Provides persistent storage for portfolio state, orders, and risk events
+- **Alert Manager**: Multi-channel notification system for operational and risk events
+- **Model Lifecycle**: Manages ML model retraining, retirement, and concept drift detection
 
 **Section sources**
 - [Tech_Design_Document.md](file://Tech_Design_Document.md#L890-L931)
-- [PRD_Intelligent_Trading_System_v2.md](file://PRD_Intelligent_Trading_System_v2.md#L334-L362)
+- [Tech_Design_Document.md](file://Tech_Design_Document.md#L1115-L1169)
 - [src/stress/tester.py](file://src/stress/tester.py#L14-L49)
 
 ## Core Components
@@ -208,6 +229,9 @@ participant MC as MonteCarlo
 participant MET as Metrics
 participant VAL as Validation
 participant RM as RiskManager
+participant PG as PaperGates
+participant PT as PaperTrading
+participant LT as LiveTrading
 STRAT->>BT : Historical Data + Strategy Logic
 BT->>BT : Execute Backtest Simulation with Standardized Column Access
 BT->>MET : Calculate Seven Performance Metrics
@@ -218,13 +242,17 @@ ST->>MC : Execute Monte Carlo Simulation
 MC->>MET : Calculate VaR/CVaR Statistics
 MET->>RM : Risk Assessment Integration
 RM->>VAL : Risk Controls Validation
-VAL-->>STRAT : Comprehensive Validation Report
-Note over STRAT,MET : Advanced Validation Workflow Complete
+VAL->>PG : Pre-Paper Trading Validation
+PG->>PT : Paper Trading Gate
+PT->>LT : Live Trading Gate
+LT-->>STRAT : Full Deployment
+Note over STRAT,MET : Complete Validation Workflow
 ```
 
 **Diagram sources**
 - [Tech_Design_Document.md](file://Tech_Design_Document.md#L1441-L1454)
 - [Tech_Design_Document.md](file://Tech_Design_Document.md#L904-L930)
+- [Tech_Design_Document.md](file://Tech_Design_Document.md#L1115-L1169)
 - [src/stress/tester.py](file://src/stress/tester.py#L187-L265)
 
 The architecture ensures comprehensive validation through multiple layers:
@@ -235,6 +263,83 @@ The architecture ensures comprehensive validation through multiple layers:
 4. **Risk Integration**: Continuous risk assessment throughout validation
 5. **Performance Metrics**: Comprehensive statistical analysis with risk-adjusted measures
 6. **Criteria Validation**: Automated acceptance testing against predefined standards
+7. **Paper Trading Gates**: Structured transition from backtesting to live trading with operational safeguards
+8. **Live Trading Validation**: Real market validation with progressive capital ramping
+
+## Paper Trading Gates
+
+**New Section** The Paper Trading Gates framework provides a structured approach to transitioning trading strategies from backtesting to live markets through three distinct phases with comprehensive validation requirements.
+
+### 8.1 Pre-Paper Trading Requirements
+
+Before entering paper trading, the strategy must pass two critical gates:
+
+**Gate 1: Backtest Validation**
+- Sharpe Ratio > 0.7 (validated over 5-year backtest period)
+- Maximum Drawdown < 20%
+- All stress test scenarios must pass
+- No Level 4 risk trigger in any scenario
+- **Critical**: All validation criteria must be met before proceeding to paper trading
+
+**Gate 2: Code Quality**
+- Unit test coverage > 80%
+- Integration tests pass
+- All data quality checks implemented
+- State persistence verified
+- **Technical Requirement**: System must demonstrate reliable state management and data handling
+
+### 8.2 Paper Trading Criteria (Minimum 3 Months)
+
+**Phase 1+2 Paper Trading Gate:**
+- Duration: ≥ 3 months (≥ 63 trading days)
+- Sharpe Ratio > 0.5
+- Maximum Drawdown < 15%
+- No system crashes or data interruptions
+- All risk control levels triggered at least once (verification)
+
+**Phase 3 (ML) Paper Trading Gate:**
+- Duration: ≥ 3 months additional
+- ML-enhanced strategy outperforms traditional strategy
+- Maximum Drawdown < 15%
+- Model Information Coefficient (IC) remains > 0.02 throughout
+
+### 8.3 Live Trading Progression
+
+**Small Capital Gate:**
+- Paper trading gate passed
+- Initial capital ≤ 10% of planned total
+- Run for 4 weeks without major issues
+- Live P&L vs paper simulation deviation < 2%
+
+**Full Capital Gate:**
+- Small capital gate passed
+- Gradual ramp: 10% → 25% → 50% → 100%
+- Each stage minimum 2 weeks
+- Risk controls verified at each stage
+
+```mermaid
+flowchart TD
+START[Strategy Development Complete] --> PREP[Pre-Paper Trading Requirements]
+PREP --> GATE1{Gate 1: Backtest Validation}
+GATE1 --> |Pass| GATE2{Gate 2: Code Quality}
+GATE1 --> |Fail| FIX[Fix Issues & Retry]
+GATE2 --> |Pass| PAPER[Paper Trading Phase]
+GATE2 --> |Fail| FIX
+FIX --> PREP
+PAPER --> PH12{Phase 1+2 Criteria}
+PH12 --> |Pass| PH3{Phase 3 ML Criteria}
+PH12 --> |Fail| PAPER
+PH3 --> |Pass| SMALL[Small Capital Gate]
+PH3 --> |Fail| PAPER
+SMALL --> FULL[Full Capital Gate]
+FULL --> LIVE[Live Trading Deployment]
+```
+
+**Diagram sources**
+- [Tech_Design_Document.md](file://Tech_Design_Document.md#L1115-L1169)
+
+**Section sources**
+- [Tech_Design_Document.md](file://Tech_Design_Document.md#L1115-L1169)
 
 ## Detailed Component Analysis
 
@@ -441,6 +546,47 @@ MonteCarloMetrics --> ValidationCriteria : validates
 - [src/risk/manager.py](file://src/risk/manager.py#L82-L99)
 - [config/strategy.yaml](file://config/strategy.yaml#L46-L91)
 
+### State Persistence and Alert Management
+
+**New Integration** The framework now includes comprehensive state persistence and alert management for operational continuity:
+
+#### State Manager Capabilities
+- **Portfolio State Persistence**: Complete portfolio state saved to SQLite database
+- **Order History Tracking**: Full order lifecycle recorded with timestamps
+- **Risk Event Logging**: All risk control triggers captured with detailed context
+- **System State Recovery**: Arbitrary system states can be saved and restored
+- **Automatic Backups**: Database backup creation with timestamped filenames
+
+#### Alert Management System
+- **Multi-Channel Notifications**: Email, Slack, Telegram, and Discord integration
+- **Severity-Based Routing**: Critical, warning, and informational alerts routed appropriately
+- **Risk Level Alerts**: Automatic notifications for risk control escalations
+- **Data Quality Warnings**: Proactive alerts for data integrity issues
+- **Emergency Liquidation Alerts**: Immediate notification for Level 4 triggers
+
+**Section sources**
+- [src/state/manager.py](file://src/state/manager.py#L13-L90)
+- [src/alerts/manager.py](file://src/alerts/manager.py#L26-L70)
+
+### Model Lifecycle Management
+
+**New Integration** The framework incorporates model lifecycle management for ML-enhanced strategies:
+
+#### Retraining Triggers
+- **Monthly Retraining**: Automatic retraining on regular schedule
+- **IC-Based Retraining**: Triggered when rolling IC falls below 0.02 for 10 consecutive days
+- **Concept Drift Detection**: KS test for statistical significance in distribution changes
+- **Performance Comparison**: New models must significantly outperform old models
+
+#### Retirement Criteria
+- **IC Threshold**: Models automatically retired when IC < 0 for 30 consecutive days
+- **Statistical Significance**: Proper statistical testing for model replacement decisions
+- **Drift Monitoring**: Continuous monitoring of concept drift with alert thresholds
+
+**Section sources**
+- [src/ml/lifecycle.py](file://src/ml/lifecycle.py#L36-L93)
+- [src/ml/lifecycle.py](file://src/ml/lifecycle.py#L94-L143)
+
 ### Validation Workflow Integration
 
 The validation framework integrates with strategy development and risk management components through a comprehensive workflow:
@@ -466,9 +612,16 @@ RISK[Risk Assessment]
 CONTROLS[Risk Controls]
 MONITOR[Continuous Monitoring]
 end
-subgraph "Paper Trading"
-PAPER[Paper Trading Gate]
-LIVE[Live Trading]
+subgraph "Paper Trading Gates"
+PREP[Pre-Paper Requirements]
+PAPER[Paper Trading Validation]
+LIVE[Live Trading Gates]
+end
+subgraph "Operations & Automation"
+STATE[State Persistence]
+ALERT[Alert Management]
+LIFECYCLE[Model Lifecycle]
+DEPLOY[Deployment & Monitoring]
 end
 DEV --> TEST
 TEST --> BACKTEST
@@ -480,12 +633,18 @@ MONTESIM --> STRESS_ANALYSIS
 STRESS_ANALYSIS --> RISK
 RISK --> CONTROLS
 CONTROLS --> MONITOR
-MONITOR --> PAPER
+MONITOR --> PREP
+PREP --> PAPER
 PAPER --> LIVE
+LIVE --> STATE
+STATE --> ALERT
+ALERT --> LIFECYCLE
+LIFECYCLE --> DEPLOY
 ```
 
 **Diagram sources**
-- [Tech_Design_Document.md](file://Tech_Design_Document.md#L1115-L1166)
+- [Tech_Design_Document.md](file://Tech_Design_Document.md#L1115-L1169)
+- [Tech_Design_Document.md](file://Tech_Design_Document.md#L1170-L1258)
 - [src/stress/tester.py](file://src/stress/tester.py#L187-L265)
 
 The workflow ensures systematic validation at each stage:
@@ -495,11 +654,12 @@ The workflow ensures systematic validation at each stage:
 3. **Stress Testing Phase**: Validation under five historical crisis scenarios with improved data consistency
 4. **Probabilistic Risk Phase**: Monte Carlo simulation with VaR/CVaR analysis
 5. **Risk Integration**: Continuous risk assessment and control application
-6. **Paper Trading Phase**: Live market simulation with risk controls
-7. **Live Trading Phase**: Full deployment with ongoing monitoring
+6. **Paper Trading Phase**: Structured transition with pre-paper requirements and validation criteria
+7. **Live Trading Phase**: Progressive capital ramping with operational safeguards
+8. **Operations Phase**: State persistence, alert management, and model lifecycle integration
 
 **Section sources**
-- [Tech_Design_Document.md](file://Tech_Design_Document.md#L1115-L1166)
+- [Tech_Design_Document.md](file://Tech_Design_Document.md#L1115-L1169)
 
 ## Dependency Analysis
 
@@ -518,7 +678,7 @@ STRESS[Stress Testing]
 METRICS[Performance Metrics]
 VALIDATION[Validation Criteria]
 MCSIM[Monte Carlo Simulation]
-END
+end
 subgraph "Risk Management"
 RM[Risk Manager]
 CORR[Correlation Monitor]
@@ -528,6 +688,12 @@ subgraph "Data Layer"
 DP[Data Provider]
 FC[Factor Calculator]
 CACHE[Cache System]
+end
+subgraph "Paper Trading & Operations"
+SM[State Manager]
+AM[Alert Manager]
+LM[Model Lifecycle]
+DA[Deployment Architecture]
 end
 BT --> STRESS
 STRESS --> METRICS
@@ -539,11 +705,16 @@ DP --> FC
 FC --> STRESS
 DP --> CACHE
 MCSIM --> VALIDATION
+SM --> AM
+SM --> LM
+AM --> DA
+LM --> DA
 ```
 
 **Diagram sources**
 - [Tech_Design_Document.md](file://Tech_Design_Document.md#L121-L140)
 - [Tech_Design_Document.md](file://Tech_Design_Document.md#L890-L931)
+- [Tech_Design_Document.md](file://Tech_Design_Document.md#L1115-L1169)
 - [src/stress/tester.py](file://src/stress/tester.py#L204-L215)
 
 The dependency structure supports:
@@ -553,6 +724,8 @@ The dependency structure supports:
 - **Advanced Analytics**: Integration of NumPy and Pandas for statistical calculations
 - **Risk Integration**: Seamless integration with risk management systems
 - **Data Efficiency**: Optimized data handling and caching mechanisms with standardized column access
+- **Operational Continuity**: State persistence and alert management for production readiness
+- **Model Evolution**: Lifecycle management for machine learning components
 
 **Section sources**
 - [Tech_Design_Document.md](file://Tech_Design_Document.md#L121-L140)
@@ -573,13 +746,20 @@ The framework incorporates several performance optimization strategies:
 - **Index Optimization**: Uses hierarchical indexing for efficient multi-asset processing
 - **Cache Strategy**: Implements multi-level caching for frequently accessed data
 - **Historical Data Compression**: Optimized storage of price series for stress testing
-- ****Enhanced Data Consistency**: Standardized column naming eliminates data access overhead and prevents runtime errors
+- **Enhanced Data Consistency**: Standardized column naming eliminates data access overhead and prevents runtime errors
 
 ### Validation Performance
 - **Early Termination**: Stops simulations early when performance criteria are clearly violated
 - **Progressive Validation**: Validates critical metrics first, then detailed analysis
 - **Batch Processing**: Processes multiple scenarios in optimized batches
 - **Risk Level Monitoring**: Real-time risk assessment reduces unnecessary computation
+- **State Persistence Optimization**: Efficient database operations for state management
+
+### Paper Trading Performance
+- **Minimal Overhead**: Paper trading adds negligible computational overhead
+- **State Recovery**: Fast state loading for seamless transition to live trading
+- **Alert System**: Non-blocking notification system with configurable channels
+- **Model Updates**: Efficient model reloading without system downtime
 
 ## Troubleshooting Guide
 
@@ -590,7 +770,7 @@ Common issues encountered during backtesting and validation:
 - **Inconsistent Timestamps**: Normalize data to consistent frequency and alignment
 - **Outlier Detection**: Use statistical methods to identify and handle data anomalies
 - **Historical Scenario Alignment**: Ensure stress test scenarios align with available historical data
-- ****Case Sensitivity Errors**: **Fixed** - All data column access now uses standardized lowercase 'close' format
+- **Case Sensitivity Errors**: **Fixed** - All data column access now uses standardized lowercase 'close' format
 
 ### Strategy Overfitting
 - **Walk-Forward Validation**: Implement time-based validation to prevent lookahead bias
@@ -610,6 +790,18 @@ Common issues encountered during backtesting and validation:
 - **Position Limits**: Ensure compliance with maximum position constraints
 - **Stress Test Robustness**: Validate stress test scenarios against real market conditions
 
+### Paper Trading Issues
+- **State Persistence**: Verify database connectivity and schema initialization
+- **Alert Configuration**: Check environment variables for notification channel setup
+- **Model Lifecycle**: Monitor IC values and drift detection thresholds
+- **Transition Delays**: Ensure proper timing between paper trading phases
+
+### Live Trading Problems
+- **Capital Ramp Issues**: Verify progressive capital increase calculations
+- **Risk Control Escalation**: Confirm proper handling of risk level increases
+- **System Monitoring**: Check deployment architecture and monitoring setup
+- **Incident Response**: Validate emergency procedures and manual intervention protocols
+
 **Section sources**
 - [Tech_Design_Document.md](file://Tech_Design_Document.md#L1313-L1334)
 
@@ -625,7 +817,10 @@ The Backtesting and Validation Framework provides a comprehensive solution for v
 - **Hierarchical Risk Controls**: 4-level risk management system with automatic controls
 - **Probabilistic Risk Assessment**: Statistical analysis of portfolio stress scenarios
 - **Realistic Market Modeling**: Sophisticated correlation and volatility assumptions
-- ****Critical Enhancement**: Robust case-insensitive data column handling ensuring compatibility across all data sources and exchanges
+- **Critical Enhancement**: Robust case-insensitive data column handling ensuring compatibility across all data sources and exchanges
+- **Paper Trading Gates**: Structured validation framework for transitioning from backtesting to live trading
+- **Operations Automation**: State persistence, alert management, and model lifecycle integration
+- **Deployment Architecture**: Production-ready infrastructure with monitoring and CI/CD pipelines
 
 The framework establishes a solid foundation for strategy development while maintaining the highest standards of validation and risk management. Its modular design allows for continuous improvement and adaptation as trading strategies evolve and market conditions change.
 
@@ -637,6 +832,9 @@ The framework establishes a solid foundation for strategy development while main
 - Comprehensive stress testing methodology
 - Probabilistic risk assessment capabilities
 - **Enhanced Data Compatibility**: Case-insensitive column access ensuring seamless operation across all supported data sources
+- **Paper Trading Gates Framework**: Structured validation for Phases 5-7 transition
+- **Operations Automation**: State persistence, alert management, and model lifecycle integration
+- **Production Deployment**: Docker-based architecture with monitoring and CI/CD pipelines
 
 These enhancements provide traders and developers with a robust, statistically sound framework for validating trading strategies under both normal and extreme market conditions, ensuring strategies are resilient across various market environments and risk scenarios.
 
@@ -645,3 +843,9 @@ These enhancements provide traders and developers with a robust, statistically s
 - **Solution**: Standardized column access using lowercase 'close' for all DataFrame operations
 - **Impact**: Eliminated data access errors, improved cross-source compatibility, enhanced framework reliability
 - **Scope**: Affects all historical data processing, performance metrics calculation, and stress testing scenarios
+
+**Paper Trading Gates Summary:**
+- **Pre-Paper Requirements**: Backtest validation and code quality verification
+- **Paper Trading Criteria**: Minimum 3-month validation with performance and risk requirements
+- **Live Trading Progression**: Gradual capital ramping with operational safeguards
+- **Operations Integration**: State persistence, alert management, and model lifecycle for production readiness

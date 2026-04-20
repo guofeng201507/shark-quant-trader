@@ -17,24 +17,23 @@
 - [src/execution/order_manager.py](file://src/execution/order_manager.py)
 - [src/risk/correlation.py](file://src/risk/correlation.py)
 - [src/risk/reentry.py](file://src/risk/reentry.py)
+- [src/paper_trading/engine.py](file://src/paper_trading/engine.py)
+- [src/paper_trading/monitor.py](file://src/paper_trading/monitor.py)
+- [src/paper_trading/gates.py](file://src/paper_trading/gates.py)
+- [src/paper_trading/models.py](file://src/paper_trading/models.py)
 - [main.py](file://main.py)
 - [config/strategy.yaml](file://config/strategy.yaml)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Complete implementation verification for all 13 core trading system modules
-- Updated DataProvider with concrete multi-source data acquisition (Polygon, Binance, yfinance)
-- Enhanced FactorCalculator with comprehensive technical indicator calculations
-- Implemented SignalGenerator with VIX-based market regime filtering
-- Added PositionManager with risk parity optimization and portfolio constraints
-- Integrated RiskManager with 4-level hierarchical controls and correlation monitoring
-- Complete Backtester implementation with performance metrics calculation
-- StateManager with SQLite persistence and disaster recovery capabilities
-- AlertManager with multi-channel notification support
-- Added execution layer components (OrderManager, ComplianceChecker)
-- Included risk management extensions (CorrelationMonitor, ReEntryManager)
-- Updated configuration schemas and integration patterns
+- Added comprehensive documentation for Paper Trading System components
+- Documented PaperTradingEngine with realistic order execution simulation
+- Added RealTimePerformanceMonitor with IC/KS tracking and performance metrics
+- Integrated GateValidationSystem with gate requirement validation
+- Updated interface documentation to include new trading system APIs
+- Added new data models for paper trading operations
+- Enhanced architecture overview with paper trading integration
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -42,17 +41,18 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
-10. [Appendices](#appendices)
+6. [Paper Trading System Components](#paper-trading-system-components)
+7. [Dependency Analysis](#dependency-analysis)
+8. [Performance Considerations](#performance-considerations)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
+11. [Appendices](#appendices)
 
 ## Introduction
-This API Reference documents the complete implementation of the core trading system interfaces that define the contract between the data ingestion, factor computation, signal generation, position sizing, risk control, backtesting, state persistence, and alerting subsystems. The system now includes 13 fully implemented modules with concrete functionality for multi-source data acquisition, technical factor calculation, market regime-aware signal generation, risk parity position sizing, hierarchical risk controls, comprehensive backtesting, state persistence, and multi-channel alerting.
+This API Reference documents the complete implementation of the core trading system interfaces that define the contract between the data ingestion, factor computation, signal generation, position sizing, risk control, backtesting, state persistence, and alerting subsystems. The system now includes 16 modules with concrete functionality for multi-source data acquisition, technical factor calculation, market regime-aware signal generation, risk parity position sizing, hierarchical risk controls, comprehensive backtesting, state persistence, multi-channel alerting, and a complete paper trading system with realistic execution simulation.
 
 ## Project Structure
-The trading system is organized into 13 distinct modules with clear separation of concerns and comprehensive implementation:
+The trading system is organized into 16 distinct modules with clear separation of concerns and comprehensive implementation:
 
 ```mermaid
 graph TB
@@ -70,19 +70,27 @@ end
 subgraph "Execution Layer"
 OM["OrderManager<br/>Order creation<br/>Status tracking"]
 CC["ComplianceChecker<br/>Pre-trade validation<br/>Rule enforcement"]
+PT["PaperTradingEngine<br/>Realistic execution<br/>Slippage/delay simulation"]
 end
-subgraph "Monitoring & Alerting"
-AM["AlertManager<br/>Multi-channel alerts<br/>Severity levels"]
-BT["Backtester<br/>Historical simulation<br/>Performance metrics"]
-ST["StressTester<br/>Crisis scenarios<br/>Monte Carlo simulation"]
+subgraph "Paper Trading Monitoring"
+RTPM["RealTimePerformanceMonitor<br/>IC/KS tracking<br/>Sharpe/drawdown metrics"]
+GVS["GateValidationSystem<br/>Gate requirement validation<br/>Deviation analysis"]
 end
 subgraph "State Management"
 SM["StateManager<br/>SQLite persistence<br/>Disaster recovery"]
+end
+subgraph "Alerting & Backtesting"
+AM["AlertManager<br/>Multi-channel alerts<br/>Severity levels"]
+BT["Backtester<br/>Historical simulation<br/>Performance metrics"]
+ST["StressTester<br/>Crisis scenarios<br/>Monte Carlo simulation"]
 end
 DP --> FC
 FC --> SG
 SG --> PM
 PM --> RM
+RM --> PT
+PT --> RTPM
+PT --> GVS
 RM --> CM
 RM --> REM
 PM --> OM
@@ -107,6 +115,9 @@ BT --> ST
 - [src/backtest/engine.py](file://src/backtest/engine.py#L16-L237)
 - [src/stress/tester.py](file://src/stress/tester.py#L11-L265)
 - [src/state/manager.py](file://src/state/manager.py#L13-L392)
+- [src/paper_trading/engine.py](file://src/paper_trading/engine.py#L53-L434)
+- [src/paper_trading/monitor.py](file://src/paper_trading/monitor.py#L47-L465)
+- [src/paper_trading/gates.py](file://src/paper_trading/gates.py#L41-L417)
 
 **Section sources**
 - [main.py](file://main.py#L32-L100)
@@ -360,7 +371,7 @@ Gradual position rebuilding after risk events with recovery pacing.
 - [src/risk/reentry.py](file://src/risk/reentry.py#L8-L108)
 
 ## Architecture Overview
-The trading system implements a complete end-to-end pipeline with comprehensive error handling and monitoring:
+The trading system implements a complete end-to-end pipeline with comprehensive error handling, monitoring, and paper trading capabilities:
 
 ```mermaid
 sequenceDiagram
@@ -370,6 +381,9 @@ participant FC as "FactorCalculator"
 participant SG as "SignalGenerator"
 participant PM as "PositionManager"
 participant RM as "RiskManager"
+participant PT as "PaperTradingEngine"
+participant RTPM as "RealTimePerformanceMonitor"
+participant GVS as "GateValidationSystem"
 participant OM as "OrderManager"
 participant CC as "ComplianceChecker"
 participant BR as "Broker"
@@ -381,7 +395,11 @@ DP->>FC : "Validated OHLCV data"
 FC->>SG : "Technical factor DataFrame"
 SG->>PM : "List[TradeSignal] with confidence"
 PM->>RM : "Target positions with constraints"
-RM->>OM : "Risk-controlled positions"
+RM->>PT : "Risk-controlled positions"
+PT->>PT : "Slippage/delay simulation"
+PT->>RTPM : "Portfolio updates"
+PT->>GVS : "Gate progress tracking"
+PT->>OM : "Paper orders"
 OM->>CC : "Pre-trade compliance check"
 CC->>OM : "Compliant orders"
 OM->>BR : "Execute orders"
@@ -390,13 +408,19 @@ OM->>SM : "Persist order state"
 OM->>AM : "Send execution alerts"
 RM->>AM : "Risk level alerts"
 PM->>AM : "Position change alerts"
+PT->>AM : "Paper trading alerts"
 SM->>AM : "State persistence alerts"
+RTPM->>AM : "Performance alerts"
+GVS->>AM : "Gate validation alerts"
 ```
 
 **Diagram sources**
 - [main.py](file://main.py#L101-L246)
 - [src/data/provider.py](file://src/data/provider.py#L103-L164)
 - [src/backtest/engine.py](file://src/backtest/engine.py#L35-L176)
+- [src/paper_trading/engine.py](file://src/paper_trading/engine.py#L187-L241)
+- [src/paper_trading/monitor.py](file://src/paper_trading/monitor.py#L98-L173)
+- [src/paper_trading/gates.py](file://src/paper_trading/gates.py#L102-L217)
 
 ## Detailed Component Analysis
 
@@ -537,6 +561,139 @@ SM->>AM : "State persistence alerts"
 - [src/alerts/manager.py](file://src/alerts/manager.py#L39-L70)
 - [src/alerts/manager.py](file://src/alerts/manager.py#L128-L239)
 
+## Paper Trading System Components
+
+### PaperTradingEngine
+**Complete Implementation Status**: ✅ Fully Implemented
+
+Realistic paper trading execution simulation with comprehensive slippage modeling, execution delays, and portfolio tracking.
+
+**Core Features**:
+- **Order Types**: MARKET, LIMIT, TWAP with realistic execution
+- **Slippage Simulation**: Base slippage + volatility impact + size impact
+- **Execution Delays**: 1-30 minute delays with configurable parameters
+- **Commission Modeling**: Fixed rate commission calculation
+- **Portfolio Tracking**: Complete NAV, P&L, and position management
+
+**Slippage Configuration**:
+- Base slippage: 5 bps (configurable)
+- Volatility multiplier: 0.1 (per 1% volatility)
+- Size impact threshold: $10,000 (configurable)
+- Size impact rate: 2 bps per $10k over threshold
+
+**Delay Configuration**:
+- Market orders: 60 seconds delay
+- Limit orders: 300 seconds delay
+- TWAP orders: 15-minute interval
+- Min/max delay bounds: 1-30 minutes
+
+**Method Signatures**:
+```python
+def submit_order(self, symbol: str, side: str, quantity: float, 
+               order_type: str = "MARKET", limit_price: Optional[float] = None,
+               reason: str = "") -> PaperOrder
+def execute_pending_orders(self) -> List[PaperExecutionResult]
+def update_portfolio_nav(self, prices: Dict[str, float]) -> float
+def get_portfolio_summary(self) -> Dict
+```
+
+**Section sources**
+- [src/paper_trading/engine.py](file://src/paper_trading/engine.py#L53-L434)
+
+### RealTimePerformanceMonitor
+**Complete Implementation Status**: ✅ Fully Implemented
+
+Comprehensive real-time performance monitoring with IC tracking, KS drift detection, and advanced risk metrics.
+
+**Performance Metrics**:
+- **Sharpe Ratios**: 20-day, 60-day, 252-day rolling calculations
+- **Drawdown Analysis**: Maximum drawdown and current drawdown tracking
+- **Cumulative Returns**: Portfolio value growth tracking
+- **Daily Metrics**: Trades, turnover, positions count
+
+**Model Quality Monitoring**:
+- **IC Tracking**: Information Coefficient correlation between predictions and actuals
+- **KS Drift Detection**: Kolmogorov-Smirnov test for feature distribution changes
+- **Training Distribution**: Reference distribution for drift comparison
+
+**Alert Thresholds**:
+- **Sharpe Ratio**: < 0.5 triggers WARNING
+- **Max Drawdown**: > 15% triggers CRITICAL, > 10% triggers WARNING
+- **IC Quality**: < 0.02 triggers WARNING, < 0.0 critical
+- **KS Drift**: > 0.2 critical, > 0.1 warning
+
+**Method Signatures**:
+```python
+def record_day(self, current_prices: Dict[str, float], 
+             daily_trades: int = 0, daily_turnover: float = 0.0) -> DailyPerformanceReport
+def track_ic(self, predictions: pd.Series, actuals: pd.Series, 
+           timestamp: Optional[datetime] = None) -> float
+def track_ks_drift(self, current_features: pd.DataFrame, 
+                 timestamp: Optional[datetime] = None) -> Dict[str, float]
+def get_performance_summary(self) -> Dict
+```
+
+**Section sources**
+- [src/paper_trading/monitor.py](file://src/paper_trading/monitor.py#L47-L465)
+
+### GateValidationSystem
+**Complete Implementation Status**: ✅ Fully Implemented
+
+Automated gate requirement validation system with progress tracking and deviation analysis.
+
+**Phase 1+2 Gate Requirements**:
+- **Minimum Trading Days**: 63+ trading days (3+ months)
+- **Sharpe Ratio**: > 0.5 (using longest available window)
+- **Maximum Drawdown**: < 15%
+- **System Availability**: > 99.9%
+- **Risk Level Coverage**: All levels 1-4 triggered
+- **Rolling IC**: > 0.02 (for ML phases)
+
+**Phase 3 Gate Requirements**:
+- **ML Outperformance**: ML strategy Sharpe > Traditional strategy Sharpe
+- **Minimum Trading Days**: 63+
+- **Maximum Drawdown**: < 15%
+- **Sustained IC**: > 0.02
+
+**Deviation Analysis**:
+- **Sharpe Deviation**: > 0.3 threshold for investigation
+- **Drawdown Deviation**: > 5% threshold for investigation
+- **Return Deviation**: > 5% threshold for investigation
+
+**Method Signatures**:
+```python
+def validate_phase_1_2_gates(self) -> GateValidationResult
+def validate_phase_3_gates(self, ml_sharpe: float, traditional_sharpe: float) -> GateValidationResult
+def generate_deviation_report(self, backtest_results: BacktestResult) -> DeviationReport
+def get_gate_progress(self) -> Dict
+```
+
+**Section sources**
+- [src/paper_trading/gates.py](file://src/paper_trading/gates.py#L41-L417)
+
+### Paper Trading Data Models
+**Complete Implementation Status**: ✅ Fully Implemented
+
+Comprehensive data models supporting paper trading operations with detailed execution tracking and performance reporting.
+
+**Core Data Models**:
+- **PaperOrder**: Order with execution metadata and status tracking
+- **PaperExecutionResult**: Detailed execution outcome with slippage and commission
+- **PaperPortfolio**: Complete portfolio state with NAV and P&L tracking
+- **DailyPerformanceReport**: End-of-day performance metrics
+- **GateValidationResult**: Gate requirement validation results
+- **DeviationReport**: Paper vs backtest performance comparison
+- **ICPoint/KSDriftPoint**: Individual metric measurements for trend analysis
+
+**Validation Rules**:
+- Order side validation (BUY/SELL)
+- Order type validation (MARKET/LIMIT/TWAP)
+- Portfolio constraint enforcement
+- Gate requirement compliance tracking
+
+**Section sources**
+- [src/paper_trading/models.py](file://src/paper_trading/models.py#L10-L210)
+
 ## Dependency Analysis
 The system demonstrates mature dependency management with clear module boundaries and comprehensive integration:
 
@@ -547,6 +704,9 @@ DP["DataProvider"] --> FC["FactorCalculator"]
 FC --> SG["SignalGenerator"]
 SG --> PM["PositionManager"]
 PM --> RM["RiskManager"]
+RM --> PT["PaperTradingEngine"]
+PT --> RTPM["RealTimePerformanceMonitor"]
+PT --> GVS["GateValidationSystem"]
 RM --> OM["OrderManager"]
 OM --> CC["ComplianceChecker"]
 RM --> CM["CorrelationMonitor"]
@@ -556,6 +716,9 @@ DP --> AM["AlertManager"]
 RM --> AM
 PM --> AM
 OM --> AM
+PT --> AM
+RTPM --> AM
+GVS --> AM
 BT["Backtester"] --> ST["StressTester"]
 BT --> DP
 BT --> FC
@@ -574,12 +737,16 @@ ST --> PM
 - apprise: Multi-channel alerting
 - yfinance, requests: Data source access
 - sqlite3: Local caching and state persistence
+- scipy.stats: Statistical analysis for KS drift detection
 
 **Internal Module Dependencies**:
 - All components depend on shared domain models
 - Risk components depend on correlation utilities
 - Execution components integrate with state management
 - Backtesting depends on all core components
+- Paper trading components integrate with all core systems
+- Performance monitoring depends on paper trading engine
+- Gate validation depends on performance monitoring
 
 **Section sources**
 - [main.py](file://main.py#L14-L27)
@@ -592,6 +759,9 @@ ST --> PM
 - Signal generation: < 1 second for 15 assets
 - Position sizing: < 1 second for 15 assets
 - Risk assessment: < 2 seconds for portfolio evaluation
+- Paper trading engine: < 5 seconds for 100+ orders
+- Performance monitoring: < 2 seconds for 15 assets
+- Gate validation: < 1 second for all gate checks
 - Backtest execution: < 30 seconds for 5-year history across 15 assets
 - Memory usage: < 4 GB during intensive operations
 - State persistence: < 1 second for database operations
@@ -602,12 +772,17 @@ ST --> PM
 - Efficient portfolio constraint checking
 - Batch order processing for execution
 - Asynchronous alert delivery where supported
+- Slippage calculation caching for repeated orders
+- Rolling window calculations with efficient memory management
 
 **Scalability Considerations**:
 - Modular design allows component replacement
 - Configurable batch sizes for different market conditions
 - Database indexing for fast state queries
 - External service rate limiting for data providers
+- Paper trading simulation can handle larger portfolios
+- Performance monitoring scales with asset count
+- Gate validation processes scale linearly with time
 
 ## Troubleshooting Guide
 
@@ -638,6 +813,21 @@ ST --> PM
 - **Solutions**: Review correlation thresholds, check individual asset drawdowns, verify risk assessment logic
 - **Prevention**: Implement early warning systems, monitor correlation trends
 
+**Paper Trading Engine Issues**:
+- **Symptoms**: Incorrect slippage calculations, execution delays not working
+- **Solutions**: Verify slippage configuration, check price/volatility providers, validate order types
+- **Prevention**: Implement engine debugging, test with known scenarios
+
+**Performance Monitor Errors**:
+- **Symptoms**: IC calculations failing, KS drift detection errors
+- **Solutions**: Check training distribution setup, verify feature data shapes, validate statistical assumptions
+- **Prevention**: Implement data quality checks, handle edge cases in statistical calculations
+
+**Gate Validation Problems**:
+- **Symptoms**: Gate requirements not met, deviation analysis errors
+- **Solutions**: Verify gate progress tracking, check backtest result format, validate deviation thresholds
+- **Prevention**: Implement gate progress monitoring, test with known scenarios
+
 **State Persistence Issues**:
 - **Symptoms**: Database connection errors, state corruption, backup failures
 - **Solutions**: Check database permissions, verify backup directories, implement retry logic
@@ -652,9 +842,12 @@ ST --> PM
 - [src/data/provider.py](file://src/data/provider.py#L375-L384)
 - [src/state/manager.py](file://src/state/manager.py#L365-L392)
 - [src/alerts/manager.py](file://src/alerts/manager.py#L39-L70)
+- [src/paper_trading/engine.py](file://src/paper_trading/engine.py#L138-L168)
+- [src/paper_trading/monitor.py](file://src/paper_trading/monitor.py#L225-L297)
+- [src/paper_trading/gates.py](file://src/paper_trading/gates.py#L285-L347)
 
 ## Conclusion
-The trading system now provides a complete, production-ready implementation of all 13 core components with comprehensive error handling, performance optimization, and monitoring capabilities. The modular architecture enables incremental development while maintaining system integrity. All interfaces are fully implemented with concrete functionality, supporting multi-source data acquisition, sophisticated technical analysis, market regime-aware signal generation, risk parity position sizing, hierarchical risk controls, comprehensive backtesting, state persistence, and multi-channel alerting.
+The trading system now provides a complete, production-ready implementation of all 16 core components with comprehensive error handling, performance optimization, monitoring capabilities, and a sophisticated paper trading system. The modular architecture enables incremental development while maintaining system integrity. All interfaces are fully implemented with concrete functionality, supporting multi-source data acquisition, sophisticated technical analysis, market regime-aware signal generation, risk parity position sizing, hierarchical risk controls, comprehensive backtesting, state persistence, multi-channel alerting, and a complete paper trading system with realistic execution simulation, performance monitoring, and gate validation.
 
 ## Appendices
 
@@ -712,6 +905,24 @@ signals:
     extreme: 40
 ```
 
+**Paper Trading Configuration**:
+```yaml
+paper_trading:
+  initial_capital: 100000
+  commission_rate: 0.001
+  slippage:
+    base_slippage_bps: 5.0
+    volatility_multiplier: 0.1
+    size_impact_threshold: 10000.0
+    size_impact_bps_per_10k: 2.0
+  delay:
+    min_delay_seconds: 60
+    max_delay_seconds: 1800
+    market_order_delay: 60
+    limit_order_delay: 300
+    twap_interval_minutes: 15
+```
+
 **Section sources**
 - [config/strategy.yaml](file://config/strategy.yaml#L1-L179)
 
@@ -725,14 +936,26 @@ signals:
 - **BacktestResult**: Comprehensive performance metrics with statistical measures
 - **StressTestReport**: Scenario-specific risk assessment and survival analysis
 
+**Paper Trading Models**:
+- **PaperOrder**: Order with execution metadata and status tracking
+- **PaperExecutionResult**: Detailed execution outcome with slippage and commission
+- **PaperPortfolio**: Complete portfolio state with NAV and P&L tracking
+- **DailyPerformanceReport**: End-of-day performance metrics
+- **GateValidationResult**: Gate requirement validation results
+- **DeviationReport**: Paper vs backtest performance comparison
+- **ICPoint/KSDriftPoint**: Individual metric measurements for trend analysis
+
 **Validation Rules**:
 - Signal confidence: 0.0-1.0 range validation
 - Risk level: 0-4 integer validation
 - Order parameter validation (BUY/SELL, MARKET/LIMIT)
 - Portfolio constraint enforcement
+- Paper trading order validation (side/type)
+- Gate requirement compliance tracking
 
 **Section sources**
 - [src/models/domain.py](file://src/models/domain.py#L27-L156)
+- [src/paper_trading/models.py](file://src/paper_trading/models.py#L10-L210)
 
 ### Integration Examples
 
@@ -744,13 +967,49 @@ system = TradingSystem("config/strategy.yaml")
 # Execute daily trading cycle
 success = system.run_trading_cycle()
 
-# Backtesting workflow
-backtester = Backtester(initial_capital=100000)
-result = backtester.run(symbols, "2019-01-01", "2024-01-01")
+# Paper trading workflow
+engine = PaperTradingEngine(initial_capital=100000)
+monitor = RealTimePerformanceMonitor(engine.portfolio)
+gates = GateValidationSystem(monitor)
 
-# Stress testing workflow
-stress_tester = StressTester()
-reports = stress_tester.run_all_scenarios(portfolio, current_prices)
+# Execute paper trades
+orders = engine.submit_orders(trade_signals)
+results = engine.execute_pending_orders()
+monitor.record_day(current_prices, daily_trades, daily_turnover)
+validation = gates.validate_phase_1_2_gates()
+```
+
+**Paper Trading Integration Pattern**:
+```python
+# Initialize paper trading components
+engine = PaperTradingEngine(initial_capital=100000)
+monitor = RealTimePerformanceMonitor(engine.portfolio)
+gates = GateValidationSystem(monitor)
+
+# Main trading loop
+for trading_day in trading_calendar:
+    # Generate signals from strategy
+    signals = strategy.generate_signals()
+    
+    # Submit orders via paper engine
+    orders = engine.submit_orders(signals)
+    
+    # Execute pending orders
+    results = engine.execute_pending_orders()
+    
+    # Update portfolio NAV
+    engine.update_portfolio_nav(current_prices)
+    
+    # Record performance
+    report = monitor.record_day(current_prices, daily_trades, daily_turnover)
+    
+    # Track model quality
+    if use_ml_model:
+        ic = monitor.track_ic(predictions, actuals)
+    
+    # Validate gates periodically
+    if trading_day % 5 == 0:  # Every 5 trading days
+        validation = gates.validate_phase_1_2_gates()
 ```
 
 **Error Handling Patterns**:
@@ -758,8 +1017,12 @@ reports = stress_tester.run_all_scenarios(portfolio, current_prices)
 - Graceful degradation when optional dependencies unavailable
 - Comprehensive logging with structured error contexts
 - Alert escalation for critical failures
+- Paper trading simulation with fallback mechanisms
 
 **Section sources**
 - [main.py](file://main.py#L101-L246)
 - [src/backtest/engine.py](file://src/backtest/engine.py#L35-L176)
 - [src/stress/tester.py](file://src/stress/tester.py#L56-L144)
+- [src/paper_trading/engine.py](file://src/paper_trading/engine.py#L187-L241)
+- [src/paper_trading/monitor.py](file://src/paper_trading/monitor.py#L98-L173)
+- [src/paper_trading/gates.py](file://src/paper_trading/gates.py#L102-L217)
